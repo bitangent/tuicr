@@ -1432,6 +1432,7 @@ pub struct App {
     /// so that they aren't re-colored.
     /// Cleared by `rebuild_annotations`, which runs whenever the diff is replaced.
     pub colored_hunks: HashSet<(usize, usize)>,
+    pub color_words: Option<crate::word_diff::WordDiff>,
     /// Output to stdout instead of clipboard when exporting
     pub output_to_stdout: bool,
     /// Pending output to print to stdout after TUI exits

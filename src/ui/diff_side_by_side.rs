@@ -71,6 +71,7 @@ fn content_spans_for_diff_line(
     theme: &Theme,
     dl: &DiffLine,
     origin: LineOrigin,
+    ranges: &[std::ops::Range<usize>],
     search: Option<(&crate::ui::text_utils::SearchPattern, Style)>,
 ) -> Vec<Span<'static>> {
     let base = match origin {
@@ -90,6 +91,7 @@ fn content_spans_for_diff_line(
     } else {
         vec![Span::styled(dl.content.clone(), base)]
     };
+    let spans = styles::emphasize_word_spans(spans, ranges, theme, origin);
     match search {
         Some((needle, hl)) => apply_search_highlight_spans(spans, needle, hl),
         None => spans,
@@ -936,6 +938,7 @@ pub(super) fn render_side_by_side_diff(frame: &mut Frame, app: &mut App, area: R
                     line_comments,
                     &ctx,
                     file_idx,
+                    hunk_idx,
                     line_idx,
                     &mut lines,
                 );
@@ -1319,6 +1322,7 @@ fn render_hunk_lines_side_by_side(
     line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
     ctx: &SideBySideContext,
     file_idx: usize,
+    hunk_idx: usize,
     mut line_idx: usize,
     lines: &mut Vec<Line>,
 ) -> (usize, Option<SideBySideCursorInfo>) {
@@ -1377,6 +1381,7 @@ fn render_hunk_lines_side_by_side(
                         line_comments,
                         ctx,
                         file_idx,
+                        hunk_idx,
                         line_idx,
                         lines,
                     );
@@ -1472,7 +1477,7 @@ fn render_context_line_side_by_side(
         lines.push(Line::from(spans));
 
         let content =
-            content_spans_for_diff_line(ctx.theme, diff_line, LineOrigin::Context, search);
+            content_spans_for_diff_line(ctx.theme, diff_line, LineOrigin::Context, &[], search);
         let ctx_style = styles::diff_context_style(ctx.theme);
         let (lp, rp) = sbs_row_prefixes(
             ctx.theme,
@@ -1536,12 +1541,14 @@ fn render_context_line_side_by_side(
 
 /// Render paired deletions and additions side-by-side
 /// Returns (line_idx, skip_count, optional cursor info for inline comment input)
+#[allow(clippy::too_many_arguments)]
 fn render_deletion_addition_pair_side_by_side(
     hunk_lines: &[crate::model::DiffLine],
     start_idx: usize,
     line_comments: &std::collections::HashMap<u32, Vec<crate::model::Comment>>,
     ctx: &SideBySideContext,
     file_idx: usize,
+    hunk_idx: usize,
     mut line_idx: usize,
     lines: &mut Vec<Line>,
 ) -> (usize, usize, Option<SideBySideCursorInfo>) {
@@ -1585,6 +1592,8 @@ fn render_deletion_addition_pair_side_by_side(
                     ctx.lineno_width,
                     ctx.display_lineno(del_line.old_lineno, line_idx),
                     ctx.search_for(line_idx),
+                    ctx.app
+                        .word_diff_ranges(file_idx, hunk_idx, start_idx + offset),
                 );
             } else {
                 add_empty_column_spans(&mut spans, ctx.content_width, ctx.lineno_width);
@@ -1602,6 +1611,8 @@ fn render_deletion_addition_pair_side_by_side(
                     ctx.lineno_width,
                     ctx.display_lineno(add_line.new_lineno, line_idx),
                     ctx.search_for(line_idx),
+                    ctx.app
+                        .word_diff_ranges(file_idx, hunk_idx, add_start + offset),
                 );
             } else {
                 add_empty_column_spans(&mut spans, ctx.content_width, ctx.lineno_width);
@@ -1617,6 +1628,8 @@ fn render_deletion_addition_pair_side_by_side(
                             ctx.theme,
                             dl,
                             LineOrigin::Deletion,
+                            ctx.app
+                                .word_diff_ranges(file_idx, hunk_idx, start_idx + offset),
                             ctx.search_for(line_idx),
                         ),
                         column_pad_style(ctx.theme, dl, LineOrigin::Deletion),
@@ -1633,6 +1646,8 @@ fn render_deletion_addition_pair_side_by_side(
                             ctx.theme,
                             al,
                             LineOrigin::Addition,
+                            ctx.app
+                                .word_diff_ranges(file_idx, hunk_idx, add_start + offset),
                             ctx.search_for(line_idx),
                         ),
                         column_pad_style(ctx.theme, al, LineOrigin::Addition),
@@ -1762,6 +1777,7 @@ fn render_standalone_addition_side_by_side(
             ctx.lineno_width,
             ctx.display_lineno(diff_line.new_lineno, line_idx),
             ctx.search_for(line_idx),
+            &[],
         );
 
         lines.push(Line::from(spans));
@@ -1771,6 +1787,7 @@ fn render_standalone_addition_side_by_side(
             ctx.theme,
             diff_line,
             LineOrigin::Addition,
+            &[],
             ctx.search_for(line_idx),
         );
         let right_pad = column_pad_style(ctx.theme, diff_line, LineOrigin::Addition);
@@ -1895,6 +1912,7 @@ fn render_commit_message_line_side_by_side(
 }
 
 /// Add deletion line spans to the spans vector
+#[allow(clippy::too_many_arguments)]
 fn add_deletion_spans(
     theme: &Theme,
     spans: &mut Vec<Span>,
@@ -1903,6 +1921,7 @@ fn add_deletion_spans(
     lw: usize,
     display_lineno: Option<u32>,
     search: Option<(&crate::ui::text_utils::SearchPattern, Style)>,
+    ranges: &[std::ops::Range<usize>],
 ) {
     let line_num = display_lineno
         .map(|n| format!("{n:>lw$}"))
@@ -1914,31 +1933,22 @@ fn add_deletion_spans(
     ));
     spans.push(Span::styled("▌".to_string(), styles::diff_del_style(theme)));
 
-    // Use syntax highlighting if available
-    if let Some(ref highlighted) = diff_line.highlighted_spans {
-        let syntax_pad_style = Style::default().fg(theme.diff_del).bg(theme.syntax_del_bg);
-        let patched: Vec<(Style, String)> = highlighted
-            .iter()
-            .map(|(s, t)| {
-                (
-                    styles::patch_highlighted_span_bg(*s, theme, LineOrigin::Deletion),
-                    t.clone(),
-                )
-            })
-            .collect();
-        let content_spans = searched_cell_spans(&patched, content_width, syntax_pad_style, search);
-        spans.extend(content_spans);
+    let content =
+        content_spans_for_diff_line(theme, diff_line, LineOrigin::Deletion, ranges, search);
+    let pairs: Vec<_> = content
+        .into_iter()
+        .map(|span| (span.style, span.content.into_owned()))
+        .collect();
+    let pad = column_pad_style(theme, diff_line, LineOrigin::Deletion);
+    if diff_line.highlighted_spans.is_some() {
+        spans.extend(truncate_or_pad_spans(&pairs, content_width, pad));
     } else {
-        spans.extend(plain_cell_spans(
-            &diff_line.content,
-            styles::diff_del_style(theme),
-            content_width,
-            search,
-        ));
+        spans.extend(truncate_or_pad_pairs_by_chars(&pairs, content_width, pad));
     }
 }
 
 /// Add addition line spans to the spans vector
+#[allow(clippy::too_many_arguments)]
 fn add_addition_spans(
     theme: &Theme,
     spans: &mut Vec<Span>,
@@ -1947,6 +1957,7 @@ fn add_addition_spans(
     lw: usize,
     display_lineno: Option<u32>,
     search: Option<(&crate::ui::text_utils::SearchPattern, Style)>,
+    ranges: &[std::ops::Range<usize>],
 ) {
     let line_num = display_lineno
         .map(|n| format!("{n:>lw$}"))
@@ -1958,27 +1969,17 @@ fn add_addition_spans(
     ));
     spans.push(Span::styled("▌".to_string(), styles::diff_add_style(theme)));
 
-    // Use syntax highlighting if available
-    if let Some(ref highlighted) = diff_line.highlighted_spans {
-        let syntax_pad_style = Style::default().fg(theme.diff_add).bg(theme.syntax_add_bg);
-        let patched: Vec<(Style, String)> = highlighted
-            .iter()
-            .map(|(s, t)| {
-                (
-                    styles::patch_highlighted_span_bg(*s, theme, LineOrigin::Addition),
-                    t.clone(),
-                )
-            })
-            .collect();
-        let content_spans = searched_cell_spans(&patched, content_width, syntax_pad_style, search);
-        spans.extend(content_spans);
+    let content =
+        content_spans_for_diff_line(theme, diff_line, LineOrigin::Addition, ranges, search);
+    let pairs: Vec<_> = content
+        .into_iter()
+        .map(|span| (span.style, span.content.into_owned()))
+        .collect();
+    let pad = column_pad_style(theme, diff_line, LineOrigin::Addition);
+    if diff_line.highlighted_spans.is_some() {
+        spans.extend(truncate_or_pad_spans(&pairs, content_width, pad));
     } else {
-        spans.extend(plain_cell_spans(
-            &diff_line.content,
-            styles::diff_add_style(theme),
-            content_width,
-            search,
-        ));
+        spans.extend(truncate_or_pad_pairs_by_chars(&pairs, content_width, pad));
     }
 }
 
@@ -2414,6 +2415,118 @@ mod remote_comments_side_by_side_snapshot_tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn word_emphasis_renders_without_syntax_and_across_layouts_and_themes() {
+        use crate::ui::styles;
+        use ratatui::style::{Color, Style};
+        for syntax in [false, true] {
+            for wrap in [false, true] {
+                for theme in [Theme::github_dark(), Theme::github_light()] {
+                    let mut file = sample_diff_file();
+                    file.new_path = Some(PathBuf::from("fixture.unknown-extension"));
+                    let old = format!("same OLD_TOKEN tail {}", "unchanged ".repeat(16));
+                    let new = format!("same ΩTOKEN tail {}", "unchanged ".repeat(16));
+                    file.hunks[0].lines = [
+                        (LineOrigin::Deletion, old.as_str()),
+                        (LineOrigin::Addition, new.as_str()),
+                    ]
+                    .into_iter()
+                    .map(|(origin, content)| DiffLine {
+                        origin,
+                        content: content.to_owned(),
+                        old_lineno: (origin == LineOrigin::Deletion).then_some(1),
+                        new_lineno: (origin == LineOrigin::Addition).then_some(1),
+                        highlighted_spans: syntax.then(|| {
+                            vec![(
+                                Style::default().fg(Color::Yellow).bg(Color::Magenta),
+                                content.to_owned(),
+                            )]
+                        }),
+                    })
+                    .collect();
+                    let mut app = make_pr_app_with(vec![file]);
+                    app.theme = theme;
+                    app.color_words = Some(crate::word_diff::WordDiff::new(
+                        regex::Regex::new(r"\S+").unwrap(),
+                    ));
+                    app.set_diff_wrap(wrap);
+                    let buffer = draw(&mut app);
+                    let expected_base = if syntax {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .bg(app.theme.syntax_add_bg)
+                    } else {
+                        styles::diff_add_style(&app.theme)
+                    };
+                    let expected = styles::emphasize_word_spans(
+                        vec![ratatui::text::Span::styled("ΩTOKEN", expected_base)],
+                        &[0..7],
+                        &app.theme,
+                        LineOrigin::Addition,
+                    )[0]
+                    .style;
+                    let cell = buffer
+                        .content
+                        .iter()
+                        .find(|cell| cell.symbol() == "Ω")
+                        .expect("added token rendered");
+                    assert_eq!(
+                        cell.bg,
+                        expected.bg.unwrap(),
+                        "syntax={syntax}, wrap={wrap}"
+                    );
+                    assert_eq!(cell.fg, expected.fg.unwrap(), "foreground preserved");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn word_emphasis_survives_sbs_wrap_and_truncate_before_search() {
+        use super::{content_spans_for_diff_line, styles, truncate_or_pad_spans, wrap_spans};
+        let theme = Theme::dark();
+        let dl = DiffLine {
+            origin: LineOrigin::Addition,
+            content: "same café tail".to_string(),
+            old_lineno: None,
+            new_lineno: Some(1),
+            highlighted_spans: None,
+        };
+        let spans = content_spans_for_diff_line(&theme, &dl, dl.origin, &[5..10], None);
+        let changed = spans
+            .iter()
+            .find(|span| span.content == "café")
+            .expect("changed token")
+            .style
+            .bg;
+        assert_ne!(changed, Some(theme.diff_add_bg));
+        let rows = wrap_spans(&spans, 7);
+        assert!(rows.iter().flatten().any(|span| span.style.bg == changed));
+        let pairs: Vec<_> = spans
+            .iter()
+            .map(|span| (span.style, span.content.to_string()))
+            .collect();
+        assert!(
+            truncate_or_pad_spans(&pairs, 9, styles::diff_add_style(&theme))
+                .iter()
+                .any(|span| span.style.bg == changed)
+        );
+        let needle = crate::ui::text_utils::SearchPattern::new("café").unwrap();
+        let search_style = styles::search_match_style(&theme);
+        let searched = content_spans_for_diff_line(
+            &theme,
+            &dl,
+            dl.origin,
+            &[5..10],
+            Some((&needle, search_style)),
+        );
+        assert!(
+            searched
+                .iter()
+                .any(|span| span.content == "café" && span.style.bg == search_style.bg)
+        );
     }
 
     /// Side-by-side mirror of the unified culling test: the skip/emit wiring

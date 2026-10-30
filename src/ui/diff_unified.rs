@@ -613,7 +613,7 @@ pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) 
                 }
 
                 // Diff lines
-                for diff_line in &hunk.lines {
+                for (diff_line_idx, diff_line) in hunk.lines.iter().enumerate() {
                     // Hot path: skip span/style allocation entirely for diff
                     // lines outside the viewport. Comment handling below still
                     // runs so `line_idx` stays exact and any comment box that
@@ -693,6 +693,14 @@ pub(super) fn render_unified_diff(frame: &mut Frame, app: &mut App, area: Rect) 
                             // Zero-width marker span carrying the background style.
                             Span::styled(String::new(), eol_style)
                         });
+
+                        let content_spans = line_spans.split_off(content_start);
+                        line_spans.extend(styles::emphasize_word_spans(
+                            content_spans,
+                            app.word_diff_ranges(file_idx, hunk_idx, diff_line_idx),
+                            &app.theme,
+                            diff_line.origin,
+                        ));
 
                         if let Some(needle) = app.search_paint_at(line_idx) {
                             let content_spans = line_spans.split_off(content_start);
@@ -1839,6 +1847,72 @@ mod remote_comments_snapshot_tests {
             is_too_large: false,
             is_commit_message: false,
             content_hash,
+        }
+    }
+
+    #[test]
+    fn word_emphasis_renders_without_syntax_and_across_layouts_and_themes() {
+        use crate::ui::styles;
+        use ratatui::style::{Color, Style};
+        for syntax in [false, true] {
+            for wrap in [false, true] {
+                for theme in [Theme::github_dark(), Theme::github_light()] {
+                    let mut file = sample_diff_file();
+                    file.new_path = Some(PathBuf::from("fixture.unknown-extension"));
+                    let old = format!("same OLD_TOKEN tail {}", "unchanged ".repeat(16));
+                    let new = format!("same ΩTOKEN tail {}", "unchanged ".repeat(16));
+                    file.hunks[0].lines = [
+                        (LineOrigin::Deletion, old.as_str()),
+                        (LineOrigin::Addition, new.as_str()),
+                    ]
+                    .into_iter()
+                    .map(|(origin, content)| DiffLine {
+                        origin,
+                        content: content.to_owned(),
+                        old_lineno: (origin == LineOrigin::Deletion).then_some(1),
+                        new_lineno: (origin == LineOrigin::Addition).then_some(1),
+                        highlighted_spans: syntax.then(|| {
+                            vec![(
+                                Style::default().fg(Color::Yellow).bg(Color::Magenta),
+                                content.to_owned(),
+                            )]
+                        }),
+                    })
+                    .collect();
+                    let mut app = make_revision_app(vec![file]);
+                    app.theme = theme;
+                    app.color_words = Some(crate::word_diff::WordDiff::new(
+                        regex::Regex::new(r"\S+").unwrap(),
+                    ));
+                    app.set_diff_wrap(wrap);
+                    let buffer = draw(&mut app);
+                    let expected_base = if syntax {
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .bg(app.theme.syntax_add_bg)
+                    } else {
+                        styles::diff_add_style(&app.theme)
+                    };
+                    let expected = styles::emphasize_word_spans(
+                        vec![ratatui::text::Span::styled("ΩTOKEN", expected_base)],
+                        &[0..7],
+                        &app.theme,
+                        LineOrigin::Addition,
+                    )[0]
+                    .style;
+                    let cell = buffer
+                        .content
+                        .iter()
+                        .find(|cell| cell.symbol() == "Ω")
+                        .expect("added token rendered");
+                    assert_eq!(
+                        cell.bg,
+                        expected.bg.unwrap(),
+                        "syntax={syntax}, wrap={wrap}"
+                    );
+                    assert_eq!(cell.fg, expected.fg.unwrap(), "foreground preserved");
+                }
+            }
         }
     }
 

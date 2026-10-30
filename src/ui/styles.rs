@@ -49,6 +49,134 @@ pub fn patch_highlighted_span_bg(style: Style, theme: &Theme, origin: LineOrigin
     }
 }
 
+/// Overlay semantic UTF-8 byte ranges after normal diff backgrounds, before
+/// search/selection and layout. The range cache never contains theme colors.
+pub fn emphasize_word_spans(
+    spans: Vec<ratatui::text::Span<'static>>,
+    ranges: &[std::ops::Range<usize>],
+    theme: &Theme,
+    origin: LineOrigin,
+) -> Vec<ratatui::text::Span<'static>> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    let accent = match origin {
+        LineOrigin::Addition => theme.diff_add,
+        LineOrigin::Deletion => theme.diff_del,
+        LineOrigin::Context => return spans,
+    };
+    if ranges.is_empty() {
+        return spans;
+    }
+    let mut result = Vec::with_capacity(spans.len() + ranges.len() * 2);
+    let mut offset = 0;
+    for span in spans {
+        let text = span.content.as_ref();
+        let end = offset + text.len();
+        let mut cuts = vec![0, text.len()];
+        // Ratatui segments each span independently. Cutting a grapheme in
+        // two can discard combining marks or turn one ZWJ emoji into multiple
+        // cells, so expand emphasis to whole graphemes within each syntax span.
+        let boundaries: Vec<_> = text
+            .grapheme_indices(true)
+            .map(|(index, _)| index)
+            .chain(std::iter::once(text.len()))
+            .collect();
+        for range in ranges {
+            if range.start > offset && range.start < end {
+                let boundary = range.start - offset;
+                let index = boundaries.partition_point(|&start| start <= boundary) - 1;
+                cuts.push(boundaries[index]);
+            }
+            if range.end > offset && range.end < end {
+                let boundary = range.end - offset;
+                let index = boundaries.partition_point(|&start| start < boundary);
+                cuts.push(boundaries[index]);
+            }
+        }
+        cuts.sort_unstable();
+        cuts.dedup();
+        for cut in cuts.windows(2) {
+            let changed = ranges
+                .iter()
+                .any(|range| range.start < offset + cut[1] && offset + cut[0] < range.end);
+            let style = if changed {
+                span.style.bg(word_emphasis_bg(
+                    span.style.bg.unwrap_or(theme.panel_bg),
+                    accent,
+                ))
+            } else {
+                span.style
+            };
+            result.push(ratatui::text::Span::styled(
+                text[cut[0]..cut[1]].to_owned(),
+                style,
+            ));
+        }
+        offset = end;
+    }
+    result
+}
+
+fn word_emphasis_bg(base: Color, accent: Color) -> Color {
+    // Theme defaults and user RGB colors retain their dark/light character.
+    // Convert ANSI colors as well, rather than using the foreground as a
+    // background (which would make non-syntax text invisible).
+    fn rgb(color: Color) -> (u8, u8, u8) {
+        let index = match color {
+            Color::Rgb(r, g, b) => return (r, g, b),
+            Color::Indexed(index) => index,
+            Color::Black | Color::Reset => 0,
+            Color::Red => 1,
+            Color::Green => 2,
+            Color::Yellow => 3,
+            Color::Blue => 4,
+            Color::Magenta => 5,
+            Color::Cyan => 6,
+            Color::Gray => 7,
+            Color::DarkGray => 8,
+            Color::LightRed => 9,
+            Color::LightGreen => 10,
+            Color::LightYellow => 11,
+            Color::LightBlue => 12,
+            Color::LightMagenta => 13,
+            Color::LightCyan => 14,
+            Color::White => 15,
+        };
+        if index < 16 {
+            const ANSI: [(u8, u8, u8); 16] = [
+                (0, 0, 0),
+                (128, 0, 0),
+                (0, 128, 0),
+                (128, 128, 0),
+                (0, 0, 128),
+                (128, 0, 128),
+                (0, 128, 128),
+                (192, 192, 192),
+                (128, 128, 128),
+                (255, 0, 0),
+                (0, 255, 0),
+                (255, 255, 0),
+                (0, 0, 255),
+                (255, 0, 255),
+                (0, 255, 255),
+                (255, 255, 255),
+            ];
+            ANSI[index as usize]
+        } else if index < 232 {
+            let i = index - 16;
+            let component = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
+            (component(i / 36), component(i / 6 % 6), component(i % 6))
+        } else {
+            let v = 8 + (index - 232) * 10;
+            (v, v, v)
+        }
+    }
+    let (br, bg, bb) = rgb(base);
+    let (ar, ag, ab) = rgb(accent);
+    let mix = |b: u8, a: u8| ((u16::from(b) * 7 + u16::from(a) * 3) / 10) as u8;
+    Color::Rgb(mix(br, ar), mix(bg, ag), mix(bb, ab))
+}
+
 pub fn expanded_context_style(theme: &Theme) -> Style {
     Style::default().fg(theme.expanded_context_fg)
 }
@@ -223,6 +351,87 @@ pub fn pseudo_commit_tag_style(theme: &Theme) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn word_emphasis_splits_utf8_ranges_preserving_foregrounds_and_live_theme() {
+        let theme = Theme::github_dark();
+        let base = Style::default().fg(Color::Yellow).bg(theme.syntax_add_bg);
+        let spans = vec![
+            ratatui::text::Span::styled("aé", base),
+            ratatui::text::Span::styled("猫z", base),
+        ];
+        let emphasized = emphasize_word_spans(spans.clone(), &[1..6], &theme, LineOrigin::Addition);
+        assert_eq!(
+            emphasized
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>(),
+            "aé猫z"
+        );
+        assert_eq!(
+            emphasized
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>(),
+            vec!["a", "é", "猫", "z"]
+        );
+        assert!(emphasized.iter().all(|s| s.style.fg == Some(Color::Yellow)));
+        assert_eq!(emphasized[0].style, base);
+        assert_ne!(emphasized[1].style.bg, base.bg);
+        let light =
+            emphasize_word_spans(spans, &[1..6], &Theme::github_light(), LineOrigin::Addition);
+        assert_ne!(emphasized[1].style.bg, light[1].style.bg);
+    }
+
+    #[test]
+    fn word_emphasis_preserves_combining_and_zwj_graphemes_when_rendered() {
+        use ratatui::{
+            buffer::Buffer,
+            layout::Rect,
+            text::{Line, Span},
+            widgets::{Paragraph, Widget},
+        };
+        let theme = Theme::github_dark();
+        let base = diff_add_style(&theme);
+        for (text, changed) in [("e\u{301} tail", 1..3), ("👩‍💻 tail", 7..11)] {
+            let source = vec![Span::styled(text, base)];
+            let emphasized =
+                emphasize_word_spans(source.clone(), &[changed], &theme, LineOrigin::Addition);
+            let area = Rect::new(0, 0, 20, 1);
+            let mut before = Buffer::empty(area);
+            let mut after = Buffer::empty(area);
+            Paragraph::new(Line::from(source)).render(area, &mut before);
+            Paragraph::new(Line::from(emphasized)).render(area, &mut after);
+            assert_eq!(
+                before
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<Vec<_>>(),
+                after
+                    .content
+                    .iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<Vec<_>>(),
+                "emphasis must preserve rendered graphemes and their width: {text:?}"
+            );
+            assert_ne!(before.content[0].bg, after.content[0].bg);
+        }
+    }
+
+    #[test]
+    fn word_emphasis_does_not_change_context_or_empty_ranges() {
+        let theme = Theme::github_dark();
+        let spans = vec![ratatui::text::Span::styled("hello", diff_del_style(&theme))];
+        assert_eq!(
+            emphasize_word_spans(spans.clone(), &[], &theme, LineOrigin::Deletion),
+            spans
+        );
+        assert_eq!(
+            emphasize_word_spans(spans.clone(), &[0..5], &theme, LineOrigin::Context),
+            spans
+        );
+    }
 
     #[test]
     fn selection_marker_changes_only_marker_foregrounds() {

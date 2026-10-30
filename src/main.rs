@@ -114,6 +114,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
     startup_warnings.extend(config_outcome.warnings);
+    let color_words = cli_args.resolved_color_words(config_outcome.config.as_ref());
     let (mut theme, theme_warnings) = profile::time("startup.resolve_theme", || {
         resolve_theme_with_config(
             cli_args.theme,
@@ -315,6 +316,7 @@ fn main() -> anyhow::Result<()> {
     app.commit_order = commit_order;
     app.commit_selection_start = commit_selection;
     app.pending_start_line = cli_args.start_line;
+    app.color_words = color_words.map(tuicr::word_diff::WordDiff::new);
 
     if let Err(e) = app.ensure_ephemeral_session_file() {
         startup_warnings.push(format!("Failed to initialize review session file: {e}"));

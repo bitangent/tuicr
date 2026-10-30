@@ -42,6 +42,8 @@ editor = "nvim"
 comment_vim = false
 q_quits = false
 comment_tab_width = 4
+color_words = false
+word_diff_regex = '\S+'
 wrap = false
 wrap_style = "flow"
 relative_line_numbers = false
@@ -109,6 +111,8 @@ session_header = true
 | `comment_vim`              | `false`      | Vim modal editing in the comment box; toggle at runtime with `:vim`. When off, default emacs/readline bindings.                                            |
 | `q_quits`                  | `false`      | Restore bare `q` as a quit key in review modes. `:q`, `ZZ`, and `ZQ` work regardless of this setting.                                                     |
 | `comment_tab_width`        | `4`          | Spaces inserted by Tab while typing in the vim comment box (Insert mode).                                                                                  |
+| `color_words` | `false` | Emphasize changed tokens in positionally paired deleted/added lines in either diff layout. CLI `--color-words[=REGEX]` overrides this setting. |
+| `word_diff_regex` | `\S+` | Rust regex selecting tokens when `color_words = true`; use TOML literal strings such as `'[[:alnum:]_]+|[^[:space:]]'`. Invalid patterns warn and fall back to the default. Zero-width matches are skipped. Not exact Git regex parity; see [CLI.md](CLI.md#changed-word-emphasis). |
 | `wrap`                     | `false`      | Line wrap in the diff view. Toggle with `:set wrap!`.                                                                                                      |
 | `wrap_style`               | `flow`       | Where wrapped unified diff rows continue: `flow` wraps from the left edge, `gutter` keeps wrapped content after the line-number gutter, leaving continuation rows without a line number or change bar. |
 | `relative_line_numbers`    | `false`      | Show gutter numbers as rendered-row distances from the cursor; the cursor line keeps its own line number. Toggle with `:set relativenumber!`.              |

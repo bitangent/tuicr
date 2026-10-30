@@ -13,6 +13,8 @@ use crate::theme::{AppearanceArg, ThemeArg};
 #[derive(Debug, Clone, Default)]
 pub struct CliArgs {
     pub theme: Option<String>,
+    /// Compiled token regex selected explicitly by --color-words.
+    pub color_words: Option<regex::Regex>,
     pub appearance: Option<AppearanceArg>,
     /// Output to stdout instead of clipboard when exporting.
     pub output_to_stdout: bool,
@@ -76,6 +78,11 @@ struct TuiOptions {
     /// loaded from the config `themes/` directory.
     #[arg(long, value_name = "THEME", value_parser = non_empty_theme_name)]
     theme: Option<String>,
+
+    /// Emphasize changed words; an optional Rust regex requires '='.
+    #[arg(long, value_name = "REGEX", num_args = 0..=1, require_equals = true,
+        default_missing_value = r"\S+", value_parser = regex::Regex::new)]
+    color_words: Option<regex::Regex>,
 
     /// Appearance mode (light/dark/system); used when no explicit theme is set.
     #[arg(long, value_name = "MODE", value_parser = parse_appearance_arg)]
@@ -371,6 +378,7 @@ impl From<Cli> for CliArgs {
         };
         Self {
             theme: options.theme,
+            color_words: options.color_words,
             appearance: options.appearance,
             output_to_stdout: options.stdout,
             no_update_check: options.no_update_check,
@@ -390,9 +398,31 @@ impl From<Cli> for CliArgs {
     }
 }
 
+impl CliArgs {
+    /// CLI (including the bare flag's default pattern) wins over config.
+    pub fn resolved_color_words(
+        &self,
+        config: Option<&crate::config::AppConfig>,
+    ) -> Option<regex::Regex> {
+        self.color_words.clone().or_else(|| {
+            let config = config?;
+            if config.color_words != Some(true) {
+                return None;
+            }
+            // Config loading validates the pattern. Keep direct library callers safe too.
+            config
+                .word_diff_regex
+                .as_deref()
+                .and_then(|pattern| regex::Regex::new(pattern).ok())
+                .or_else(|| Some(regex::Regex::new(r"\S+").expect("valid default word regex")))
+        })
+    }
+}
+
 impl TuiOptions {
     fn has_any_explicit_value(&self) -> bool {
-        self.theme.is_some()
+        self.color_words.is_some()
+            || self.theme.is_some()
             || self.appearance.is_some()
             || self.stdout
             || self.no_update_check
@@ -409,6 +439,7 @@ impl TuiOptions {
     fn merge(self, later: TuiOptions) -> Self {
         Self {
             theme: later.theme.or(self.theme),
+            color_words: later.color_words.or(self.color_words),
             appearance: later.appearance.or(self.appearance),
             stdout: self.stdout || later.stdout,
             no_update_check: self.no_update_check || later.no_update_check,
@@ -544,6 +575,69 @@ pub fn parse_cli_args() -> CliArgs {
 mod tests {
     use super::*;
     use clap::error::ErrorKind;
+
+    #[test]
+    fn color_words_bare_does_not_consume_pr_target() {
+        let args = parse_for_test(&["tuicr", "--color-words", "pr", "42"]).unwrap();
+        assert_eq!(args.pr_target.as_deref(), Some("42"));
+        assert_eq!(args.color_words.unwrap().as_str(), r"\S+");
+        let args = parse_for_test(&["tuicr", "pr", "--color-words", "42"]).unwrap();
+        assert_eq!(args.pr_target.as_deref(), Some("42"));
+    }
+
+    #[test]
+    fn color_words_regex_and_nested_override() {
+        let args = parse_for_test(&[
+            "tuicr",
+            "--color-words=old",
+            "tui",
+            "pr",
+            "42",
+            "--color-words=[^[:space:]]",
+        ])
+        .unwrap();
+        assert_eq!(args.color_words.unwrap().as_str(), "[^[:space:]]");
+        assert!(parse_for_test(&["tuicr", "--color-words=["]).is_err());
+        assert!(parse_for_test(&["tuicr", "--color-words", "review", "list"]).is_err());
+        assert!(parse_for_test(&["tuicr"]).unwrap().color_words.is_none());
+    }
+
+    #[test]
+    fn color_words_cli_overrides_config_and_bare_uses_default() {
+        let cfg = crate::config::AppConfig {
+            color_words: Some(true),
+            word_diff_regex: Some("custom".to_string()),
+            ..Default::default()
+        };
+        let absent = parse_for_test(&["tuicr"]).unwrap();
+        assert_eq!(
+            absent.resolved_color_words(Some(&cfg)).unwrap().as_str(),
+            "custom"
+        );
+        let bare = parse_for_test(&["tuicr", "--color-words"]).unwrap();
+        assert_eq!(
+            bare.resolved_color_words(Some(&cfg)).unwrap().as_str(),
+            r"\S+"
+        );
+        let disabled = crate::config::AppConfig {
+            color_words: Some(false),
+            ..cfg
+        };
+        assert!(absent.resolved_color_words(Some(&disabled)).is_none());
+        assert!(bare.resolved_color_words(Some(&disabled)).is_some());
+        assert!(absent.resolved_color_words(None).is_none());
+        let default = crate::config::AppConfig {
+            color_words: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(
+            absent
+                .resolved_color_words(Some(&default))
+                .unwrap()
+                .as_str(),
+            r"\S+"
+        );
+    }
 
     fn parse_for_test(args: &[&str]) -> Result<CliArgs, clap::Error> {
         Cli::try_parse_from(args).and_then(Cli::try_into_args)
