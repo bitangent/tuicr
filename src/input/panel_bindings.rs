@@ -1,4 +1,4 @@
-//! The six configurable review-navigation actions, not a general mode keymap.
+//! The eight configurable review-navigation actions, not a general mode keymap.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::keybindings::{Action, map_file_tree_mode, map_global_key, map_key_to_action};
@@ -15,7 +15,7 @@ struct Binding {
 #[derive(Debug, Clone)]
 pub struct PanelBindings(Vec<(Action, Vec<Binding>)>);
 
-fn actions() -> [(&'static str, Action, char); 6] {
+fn actions() -> [(&'static str, Action, char); 8] {
     [
         ("focus_left", Action::FocusLeft, 'h'),
         ("focus_right", Action::FocusRight, 'l'),
@@ -23,6 +23,8 @@ fn actions() -> [(&'static str, Action, char); 6] {
         ("focus_down", Action::FocusDown, 'j'),
         ("toggle_file_list", Action::ToggleFileList, 'e'),
         ("toggle_single_file_view", Action::ToggleSingleFileView, 'f'),
+        ("file_tree_clear_include", Action::FileTreeClearInclude, 'I'),
+        ("file_tree_clear_exclude", Action::FileTreeClearExclude, 'E'),
     ]
 }
 
@@ -35,7 +37,7 @@ impl Default for PanelBindings {
                     (
                         action,
                         vec![Binding {
-                            leader: true,
+                            leader: !matches!(c, 'I' | 'E'),
                             code: KeyCode::Char(c),
                             modifiers: KeyModifiers::NONE,
                         }],
@@ -305,12 +307,63 @@ mod tests {
     }
 
     #[test]
-    fn panel_defaults_resolve_all_six_only_after_leader() {
+    fn filter_clear_defaults_and_replacements_free_their_keys() {
+        let map = PanelBindings::default();
+        assert_eq!(
+            map.resolve(key('I'), false),
+            Some(Action::FileTreeClearInclude)
+        );
+        assert_eq!(
+            map.resolve(key('E'), false),
+            Some(Action::FileTreeClearExclude)
+        );
+        for replacement in ["['<leader>E']", "[]"] {
+            let map = PanelBindings::from_config(&config(&format!(
+                "[keybindings]\nfile_tree_clear_exclude={replacement}\ntoggle_file_list=['E']"
+            )))
+            .unwrap();
+            assert_eq!(map.resolve(key('E'), false), Some(Action::ToggleFileList));
+            assert_eq!(
+                map.resolve(key('E'), true),
+                if replacement == "[]" {
+                    None
+                } else {
+                    Some(Action::FileTreeClearExclude)
+                }
+            );
+        }
+        assert!(
+            PanelBindings::from_config(&config("[keybindings]\ntoggle_file_list=['E']")).is_err()
+        );
+        assert!(
+            PanelBindings::from_config(&config("[keybindings]\nfile_tree_clear_include=['E']"))
+                .is_err()
+        );
+        let map = PanelBindings::from_config(&config(
+            "[keybindings]\nfile_tree_clear_include=[]\nfile_tree_clear_exclude=[]",
+        ))
+        .unwrap();
+        for c in ['I', 'E'] {
+            assert_eq!(map.resolve(key(c), false), None);
+            assert_eq!(map_file_tree_mode(key(c), ';'), Action::None);
+        }
+    }
+
+    #[test]
+    fn panel_defaults_resolve_with_their_expected_prefix() {
         let map = PanelBindings::default();
         for (_, action, c) in actions() {
-            assert_eq!(map.resolve(key(c), true), Some(action.clone()));
-            assert_eq!(map.resolve(key(c), false), None);
-            assert_eq!(map.labels(action, ';'), format!(";{c}"));
+            let leader = !matches!(c, 'I' | 'E');
+            assert_eq!(map.resolve(key(c), leader), Some(action.clone()));
+            assert_eq!(map.resolve(key(c), !leader), None);
+            assert_eq!(
+                map.labels(action, ';'),
+                if leader {
+                    format!(";{c}")
+                } else {
+                    c.to_string()
+                }
+            );
         }
     }
 
@@ -372,7 +425,6 @@ mod tests {
             "focus_left=['j']",
             "focus_left=['i']",
             "focus_left=['E']",
-            "focus_left=['Alt-I']",
             "focus_left=['Alt-G']",
             "focus_left=['Ctrl-d']",
             "focus_left=['<leader>c']",

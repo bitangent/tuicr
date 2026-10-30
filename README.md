@@ -330,7 +330,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `/` | Search the diff by case-insensitive regex, or search the file tree/help by text — whichever is focused/open |
 | `n` / `N` | Next / previous search match (wraps); matches stay highlighted — `Esc` clears |
 | `i` / `e` (file tree) | Filter files in / out by regex; narrows the tree **and** the diff |
-| `I` / `E` (file tree) | Clear the include / exclude filter |
+| `I` / `E` (file tree) | Clear the include / exclude filter (configurable) |
 | `c` / `C` | Add line / file comment |
 | `v` / `V` | Visual mode (range comment) |
 | `r` | Toggle file reviewed |

@@ -195,6 +195,8 @@ fn help_lines(
     let focus_down = bindings.labels(Action::FocusDown, leader);
     let toggle_file_list = bindings.labels(Action::ToggleFileList, leader);
     let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
+    let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
+    let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let leader = leader_display(leader);
     vec![
         Line::from(Span::styled(
@@ -590,7 +592,7 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
-                "  I/E       ",
+                format!("  {clear_include} / {clear_exclude}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Clear the include/exclude filter"),
@@ -1112,6 +1114,8 @@ mod tests {
             focus_left = ["Alt-Left", "<leader>a"]
             toggle_file_list = []
             toggle_single_file_view = ["<leader>v"]
+            file_tree_clear_include = []
+            file_tree_clear_exclude = ["<leader>E", "Alt-E"]
         "#,
         )
         .unwrap();
@@ -1127,6 +1131,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Alt-Left / ,a"));
+        assert!(text.contains("unbound / ,E / Alt-E"));
         assert!(
             text.lines()
                 .any(|line| line.contains("unbound") && line.contains("Toggle file list"))

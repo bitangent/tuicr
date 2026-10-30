@@ -723,7 +723,7 @@ fn main() -> anyhow::Result<()> {
                     } else if app.input_mode == InputMode::Normal
                         && app.focused_panel == FocusedPanel::FileList
                     {
-                        // The tree claims i/e/I/E and `/` for filtering; the
+                        // The fixed tree map claims i/e and `/` for filtering; the
                         // diff keeps its own meanings for those keys.
                         map_file_tree_mode_with_q_quits(key, app.leader_key, app.q_quits)
                     } else {
