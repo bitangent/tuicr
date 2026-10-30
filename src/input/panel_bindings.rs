@@ -1,4 +1,4 @@
-//! The eight configurable review-navigation actions, not a general mode keymap.
+//! The nine configurable review-navigation actions, not a general mode keymap.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::keybindings::{Action, map_file_tree_mode, map_global_key, map_key_to_action};
@@ -15,7 +15,7 @@ struct Binding {
 #[derive(Debug, Clone)]
 pub struct PanelBindings(Vec<(Action, Vec<Binding>)>);
 
-fn actions() -> [(&'static str, Action, char); 8] {
+fn actions() -> [(&'static str, Action, char); 9] {
     [
         ("focus_left", Action::FocusLeft, 'h'),
         ("focus_right", Action::FocusRight, 'l'),
@@ -23,6 +23,7 @@ fn actions() -> [(&'static str, Action, char); 8] {
         ("focus_down", Action::FocusDown, 'j'),
         ("toggle_file_list", Action::ToggleFileList, 'e'),
         ("toggle_single_file_view", Action::ToggleSingleFileView, 'f'),
+        ("toggle_diff_view", Action::ToggleDiffView, 'd'),
         ("file_tree_clear_include", Action::FileTreeClearInclude, 'I'),
         ("file_tree_clear_exclude", Action::FileTreeClearExclude, 'E'),
     ]
@@ -309,6 +310,44 @@ mod tests {
     }
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn diff_toggle_defaults_remapping_aliases_unbinding_and_conflicts() {
+        let map = PanelBindings::default();
+        assert_eq!(map.resolve(key('d'), true), Some(Action::ToggleDiffView));
+        assert_eq!(map.resolve(key('d'), false), None);
+        assert_eq!(
+            map_key_to_action(key('d'), InputMode::Normal, ' '),
+            Action::PendingDCommand
+        );
+        assert_eq!(map.labels(Action::ToggleDiffView, ' '), "Space d");
+        let map = PanelBindings::from_config(&config(
+            "[keybindings]\ntoggle_diff_view=['<leader>v', 'F12']",
+        ))
+        .unwrap();
+        assert_eq!(map.resolve(key('d'), true), None);
+        assert_eq!(map.resolve(key('v'), true), Some(Action::ToggleDiffView));
+        assert_eq!(
+            map.resolve(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE), false),
+            Some(Action::ToggleDiffView)
+        );
+        let map = PanelBindings::from_config(&config(
+            "[keybindings]\ntoggle_diff_view=[]\nfocus_left=['<leader>d']",
+        ))
+        .unwrap();
+        assert_eq!(map.labels(Action::ToggleDiffView, ';'), "unbound");
+        assert_eq!(map.resolve(key('d'), true), Some(Action::FocusLeft));
+        for overrides in [
+            "focus_left=['<leader>d']",
+            "toggle_diff_view=['<leader>h']",
+            "toggle_diff_view=['d']",
+        ] {
+            assert!(
+                PanelBindings::from_config(&config(&format!("[keybindings]\n{overrides}")))
+                    .is_err()
+            );
+        }
     }
 
     #[test]

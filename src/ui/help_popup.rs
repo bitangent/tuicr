@@ -182,6 +182,7 @@ fn help_lines(
     let focus_down = bindings.labels(Action::FocusDown, leader);
     let toggle_file_list = bindings.labels(Action::ToggleFileList, leader);
     let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
+    let toggle_diff_view = bindings.labels(Action::ToggleDiffView, leader);
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let leader = leader_display(leader);
@@ -358,6 +359,13 @@ fn help_lines(
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Toggle current-file-only / continuous diff (also `:focus` / `:f`)"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  {toggle_diff_view}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Toggle unified/side-by-side diff view (also `:diff`)"),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1106,12 +1114,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn diff_toggle_help_shows_active_aliases_and_unbound_in_its_own_row() {
+        for (values, label) in [("['<leader>v', 'F12']", "Space v / F12"), ("[]", "unbound")] {
+            let config =
+                toml::from_str(&format!("[keybindings]\ntoggle_diff_view={values}")).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let lines = help_lines(' ', false, &bindings);
+            assert_description_columns_align(&lines);
+            let row = lines
+                .iter()
+                .find(|line| {
+                    line.spans.iter().any(|span| {
+                        span.content == "Toggle unified/side-by-side diff view (also `:diff`)"
+                    })
+                })
+                .unwrap();
+            assert!(row.spans[0].content.contains(label));
+            assert!(!row.spans[0].content.contains("Space d"));
+        }
+    }
+
+    #[test]
     fn should_show_default_and_fixed_bindings_with_the_configured_leader() {
         let text = help_lines(',', false, &PanelBindings::default())
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
             .collect::<String>();
-        for key in [",h", ",l", ",k", ",j", ",e", ",f", ",s", ",n", ",c"] {
+        for key in [",h", ",l", ",k", ",j", ",e", ",f", ",d", ",s", ",n", ",c"] {
             assert!(text.contains(key), "missing {key}");
         }
         assert!(!text.contains(";f"));
@@ -1230,7 +1259,7 @@ mod tests {
                 .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
                 .collect::<String>();
             let left = if overrides.is_empty() { "h" } else { "a" };
-            for suffix in [left, "l", "k", "j", "e", "f", "s", "n", "c"] {
+            for suffix in [left, "l", "k", "j", "e", "f", "d", "s", "n", "c"] {
                 assert!(
                     text.contains(&format!("Space {suffix}")),
                     "missing Space {suffix}"

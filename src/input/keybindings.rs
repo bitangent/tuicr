@@ -37,6 +37,7 @@ pub enum Action {
     FocusDown,
     ToggleFileList,
     ToggleSingleFileView,
+    ToggleDiffView,
 
     // Panel focus
     ToggleFocus,
