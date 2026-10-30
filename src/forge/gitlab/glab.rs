@@ -323,6 +323,11 @@ where
     R: GlabCommandRunner,
 {
     fn list_pull_requests(&self, query: PullRequestListQuery) -> Result<PagedPullRequests> {
+        if query.scope == PullRequestListScope::AuthoredByMe {
+            return Err(TuicrError::UnsupportedOperation(
+                "Created by me filtering is not supported for GitLab".to_string(),
+            ));
+        }
         let page_size = query.page_size.max(1);
         let requested = query.already_loaded + page_size + 1;
         let mut args = vec![
@@ -1285,6 +1290,22 @@ mod tests {
                 .unwrap_or_default();
             Ok(resp)
         }
+    }
+
+    #[test]
+    fn authored_scope_is_explicitly_unsupported_without_network_calls() {
+        let backend =
+            GitLabGlabBackend::with_runner(None, RecordingRunner::new_with_responses(vec![]));
+        let error = backend
+            .list_pull_requests(PullRequestListQuery::first_page_with_scope(
+                ForgeRepository::gitlab("gitlab.com", "owner", "repo"),
+                30,
+                PullRequestListScope::AuthoredByMe,
+            ))
+            .unwrap_err();
+        assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+        assert!(error.to_string().contains("Created by me"));
+        assert!(backend.runner.calls.borrow().is_empty());
     }
 
     #[test]

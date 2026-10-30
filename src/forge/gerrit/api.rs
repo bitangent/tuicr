@@ -511,6 +511,11 @@ impl GerritBackend {
 
 impl ForgeBackend for GerritBackend {
     fn list_pull_requests(&self, query: PullRequestListQuery) -> Result<PagedPullRequests> {
+        if query.scope == PullRequestListScope::AuthoredByMe {
+            return Err(TuicrError::UnsupportedOperation(
+                "Created by me filtering is not supported for Gerrit".to_string(),
+            ));
+        }
         let page_size = query.page_size.max(1);
         let project = gerrit_project(&query.repository);
         let mut terms = format!("status:open+project:{}", encode_query_term(&project));
@@ -1478,6 +1483,21 @@ mod tests {
             url.contains("project:platform/base"),
             "unexpected url: {url}"
         );
+    }
+
+    #[test]
+    fn authored_scope_is_explicitly_unsupported_without_network_calls() {
+        let (backend, http) = backend_with(true, vec![]);
+        let error = backend
+            .list_pull_requests(PullRequestListQuery::first_page_with_scope(
+                gerrit_repo(),
+                30,
+                PullRequestListScope::AuthoredByMe,
+            ))
+            .unwrap_err();
+        assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+        assert!(error.to_string().contains("Created by me"));
+        assert!(http.calls().is_empty());
     }
 
     #[test]

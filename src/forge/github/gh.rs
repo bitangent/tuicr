@@ -261,9 +261,16 @@ where
             "--json".to_string(),
             PR_LIST_JSON_FIELDS.to_string(),
         ];
-        if query.scope == PullRequestListScope::ReviewRequested {
-            args.push("--search".to_string());
-            args.push("review-requested:@me".to_string());
+        match query.scope {
+            PullRequestListScope::Open => {}
+            PullRequestListScope::ReviewRequested => {
+                args.push("--search".to_string());
+                args.push("review-requested:@me".to_string());
+            }
+            PullRequestListScope::AuthoredByMe => {
+                args.push("--author".to_string());
+                args.push("@me".to_string());
+            }
         }
         let output = self.run_gh(args, &query.repository.host)?;
         let rows: Vec<GhPullRequestSummary> = serde_json::from_str(&output)?;
@@ -1672,6 +1679,45 @@ Match host github-work
                 PR_LIST_JSON_FIELDS,
             ]
         );
+    }
+
+    #[test]
+    fn list_pull_requests_authored_scope_stays_server_side_on_each_page() {
+        let backend = GitHubGhBackend::with_runner(None, FakeGhRunner::default());
+        for already_loaded in [0, 1] {
+            let result = backend
+                .list_pull_requests(PullRequestListQuery {
+                    repository: repo(),
+                    already_loaded,
+                    page_size: 1,
+                    scope: PullRequestListScope::AuthoredByMe,
+                })
+                .unwrap();
+            assert_eq!(result.pull_requests.len(), 1);
+            assert_eq!(result.total_loaded, already_loaded + 1);
+            assert_eq!(result.has_more, already_loaded == 0);
+        }
+
+        let calls = backend.runner.calls.lock().unwrap();
+        for (call, limit) in calls.iter().zip(["2", "3"]) {
+            assert_eq!(
+                call,
+                &vec![
+                    "pr",
+                    "list",
+                    "--repo",
+                    "agavra/tuicr",
+                    "--state",
+                    "open",
+                    "--limit",
+                    limit,
+                    "--json",
+                    PR_LIST_JSON_FIELDS,
+                    "--author",
+                    "@me",
+                ]
+            );
+        }
     }
 
     #[test]

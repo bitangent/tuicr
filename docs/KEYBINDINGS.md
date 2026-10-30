@@ -329,12 +329,21 @@ comments that the author publishes from Gerrit's Reply UI.
 | `j` / `k` | Move selection |
 | `Space` | Toggle local commit selection |
 | `Enter` | Confirm local commit range, open PR, load more PRs, or resume a saved review |
-| `/` | Filter currently loaded PR rows locally |
+| `/` | Filter currently loaded PR rows locally within the active scope |
 | `r` | In Pull Requests tab, toggle all open PRs / PRs requesting your review |
-| `a` | In Sessions tab, show or hide saved reviews holding no progress |
+| `a` | In Pull Requests tab, toggle all open PRs / PRs created by you (GitHub only); in Sessions tab, show or hide saved reviews holding no progress |
 | `dd` | In Sessions tab, delete the saved review under the cursor (asks to confirm) |
 | `Esc` | Return to the diff |
 | `:q` | Quit |
+
+The Pull Requests tab starts with all open PRs. `a` selects **Created by me** and
+`r` selects **Review requested**; these scopes are mutually exclusive. Press the
+active scope's key again to return to all open PRs, or the other key to switch
+scopes. Each change refetches page 1 and clears the local filter and selection.
+Created by me uses GitHub's authenticated user (`gh pr list --author @me`),
+including when loading more results. Other forges report that this scope is
+unsupported. `/` remains a local substring filter over the loaded rows, not a
+server-side search.
 
 The Sessions tab lists saved reviews for the current checkout, so you can pick one
 instead of retyping the commit range it was opened with. Rows show the review target,

@@ -3050,3 +3050,88 @@ fn pr_open_landing_mid_delete_prompt_drops_the_prompt() {
     assert_eq!(app.input_mode, InputMode::Normal);
     assert_eq!(app.pending_confirm, None);
 }
+
+#[test]
+fn authored_scope_dispatch_resets_draft_and_disconnects_stale_results() {
+    use crate::forge::traits::PullRequestListScope;
+    use crate::input::Action;
+    let mut app = build_app();
+    // Authored filtering is unsupported on GitLab, so this starts no external command.
+    let repository = ForgeRepository::gitlab("gitlab.com", "owner", "repo");
+    app.forge_repository = Some(repository.clone());
+    app.canonical_resolved = true;
+    app.pr_tab = PullRequestsTab::new(Some(repository.clone()));
+    app.pr_tab.start_initial_load();
+    app.pr_tab
+        .apply_initial_load(Ok((vec![sample_pr(1, "old")], true)));
+    app.target_tab = TargetTab::PullRequests;
+    let (old_tx, old_rx) = std::sync::mpsc::channel();
+    app.pr_load_rx = Some(old_rx);
+    old_tx
+        .send(PrLoadEvent::Initial {
+            canonical: ForgeRepository::github("github.com", "stale", "repo"),
+            result: Ok((vec![sample_pr(99, "stale")], false)),
+        })
+        .unwrap();
+
+    crate::handler::handle_commit_select_action(&mut app, Action::SessionsTabToggleShowEmpty);
+    assert_eq!(app.pr_tab.scope(), PullRequestListScope::AuthoredByMe);
+    assert!(app.pr_filter_draft.is_none());
+    assert!(!app.sessions_tab.show_empty());
+    assert!(
+        old_tx
+            .send(PrLoadEvent::LoadMore(Ok((
+                vec![sample_pr(100, "late")],
+                false
+            ))))
+            .is_err()
+    );
+    // Deliver the new scope's response deterministically, without waiting for its worker.
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.pr_load_rx = Some(rx);
+    tx.send(PrLoadEvent::Initial {
+        canonical: repository.clone(),
+        result: Ok((Vec::new(), false)),
+    })
+    .unwrap();
+    app.poll_pr_load_events();
+    assert!(app.pr_tab.view().rows.is_empty());
+    assert_eq!(app.forge_repository, Some(repository));
+    assert_eq!(app.pr_tab.scope(), PullRequestListScope::AuthoredByMe);
+}
+
+#[test]
+fn authored_key_preserves_sessions_local_and_filter_entry() {
+    use crate::input::{Action, map_key_to_action, map_target_filter_mode};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = build_app();
+    let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+    let action = map_key_to_action(key, InputMode::CommitSelect, ';');
+    assert_eq!(action, Action::SessionsTabToggleShowEmpty);
+    app.target_tab = TargetTab::Local;
+    crate::handler::handle_commit_select_action(&mut app, action.clone());
+    assert!(app.pr_load_rx.is_none());
+    app.target_tab = TargetTab::Sessions;
+    crate::handler::handle_commit_select_action(&mut app, action);
+    assert!(app.sessions_tab.show_empty());
+    assert!(app.pr_load_rx.is_none());
+    app.target_tab = TargetTab::PullRequests;
+    app.pr_filter_draft = Some(String::new());
+    for c in ['a', 'r'] {
+        let action = map_target_filter_mode(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(action, Action::InsertChar(c));
+        crate::handler::handle_commit_select_action(&mut app, action);
+    }
+    assert_eq!(app.pr_filter_draft.as_deref(), Some("ar"));
+    assert!(app.pr_load_rx.is_none());
+}
+
+#[test]
+fn authored_reload_clears_an_existing_filter_draft() {
+    let mut app = build_app();
+    app.pr_tab = PullRequestsTab::new(Some(ForgeRepository::gitlab("gitlab.com", "owner", "repo")));
+    app.canonical_resolved = true;
+    app.pr_filter_draft = Some("unfinished".into());
+    app.toggle_pr_scope(crate::forge::traits::PullRequestListScope::AuthoredByMe);
+    assert!(app.pr_filter_draft.is_none());
+}
