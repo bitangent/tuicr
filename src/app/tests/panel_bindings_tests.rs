@@ -14,8 +14,28 @@ fn panel_actions_work_from_every_normal_review_pane() {
         handle_commit_selector_action,
         handle_comment_navigator_action,
     ];
-    for handle in handlers {
+    for (handle, panel) in handlers.into_iter().zip([
+        FocusedPanel::Diff,
+        FocusedPanel::FileList,
+        FocusedPanel::CommitSelector,
+        FocusedPanel::Comments,
+    ]) {
         let mut app = app_with(vec![file("one.rs", 10), file("two.rs", 10)]);
+        app.focused_panel = panel;
+        app.leader_key = ' ';
+        let key = crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char('d'),
+            crossterm::event::KeyModifiers::NONE,
+        );
+        assert_eq!(
+            crate::handler::map_panel_key(&app, key, true),
+            Some(Action::ToggleDiffView)
+        );
+        app.diff_view_mode = DiffViewMode::Unified;
+        handle(&mut app, Action::ToggleDiffView);
+        assert_eq!(app.diff_view_mode, DiffViewMode::SideBySide);
+        handle(&mut app, Action::ToggleDiffView);
+        assert_eq!(app.diff_view_mode, DiffViewMode::Unified);
         app.show_file_list = true;
         handle(&mut app, Action::ToggleFileList);
         assert!(!app.show_file_list);
@@ -92,13 +112,19 @@ fn panel_bindings_are_scoped_out_of_every_other_mode_and_tree_text_drafts() {
     use crate::input::panel_bindings::PanelBindings;
     use crate::input::{map_file_tree_prompt_mode, map_key_to_action};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let cfg = toml::from_str("[keybindings]\nfocus_left = ['x', '<leader>a']").unwrap();
+    let cfg = toml::from_str("[keybindings]\ntoggle_diff_view = ['x', '<leader>a']").unwrap();
     let mut app = app_with(vec![file("one.rs", 10)]);
     app.panel_bindings = PanelBindings::from_config(&cfg).unwrap();
     let direct = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
     let prefixed = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
-    assert_eq!(map_panel_key(&app, direct, false), Some(Action::FocusLeft));
-    assert_eq!(map_panel_key(&app, prefixed, true), Some(Action::FocusLeft));
+    assert_eq!(
+        map_panel_key(&app, direct, false),
+        Some(Action::ToggleDiffView)
+    );
+    assert_eq!(
+        map_panel_key(&app, prefixed, true),
+        Some(Action::ToggleDiffView)
+    );
     for mode in [
         InputMode::Comment,
         InputMode::Command,
@@ -219,6 +245,40 @@ fn filter_clear_defaults_do_not_steal_the_configured_leader_prefix() {
         for modifiers in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
             let key = KeyEvent::new(KeyCode::Char(leader), modifiers);
             assert_eq!(map_panel_key(&app, key, false), None);
+        }
+    }
+}
+
+#[test]
+fn diff_toggle_shortcut_matches_command_and_pristine_guard() {
+    for pristine in [false, true] {
+        for initial in [DiffViewMode::Unified, DiffViewMode::SideBySide] {
+            let mut shortcut = app_with(vec![file("one.rs", 10)]);
+            let mut command = app_with(vec![file("one.rs", 10)]);
+            for app in [&mut shortcut, &mut command] {
+                app.is_pristine_mode = pristine;
+                app.diff_view_mode = initial;
+                app.rebuild_annotations();
+                app.colored_hunks.insert((0, 0));
+            }
+            handle_diff_action(&mut shortcut, Action::ToggleDiffView);
+            command.enter_command_mode();
+            command.command_buffer.push_str("diff");
+            crate::handler::handle_command_action(&mut command, Action::SubmitInput);
+            assert_eq!(shortcut.diff_view_mode, command.diff_view_mode);
+            assert_eq!(
+                format!("{:?}", shortcut.line_annotations),
+                format!("{:?}", command.line_annotations)
+            );
+            assert_eq!(
+                shortcut.message.as_ref().map(|m| &m.content),
+                command.message.as_ref().map(|m| &m.content)
+            );
+            assert_eq!(shortcut.colored_hunks, command.colored_hunks);
+            assert_eq!(shortcut.colored_hunks.is_empty(), !pristine);
+            if pristine {
+                assert_eq!(shortcut.diff_view_mode, initial);
+            }
         }
     }
 }

@@ -143,12 +143,17 @@ selectors. Other bindings in this table remain fixed.
 | `<leader>k` | Move focus up (comments to files, or diff/files to commit selector when visible) |
 | `<leader>j` | Move focus down (files to comments when visible, otherwise diff) |
 | `<leader>e` | Toggle file list visibility |
+| `<leader>d` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode) |
 | `<leader>f` | Toggle current-file-only / continuous diff view (also `:focus` / `:f`) |
 | `<` / `>` | Narrow / widen the outer sidebar by 2 percentage points (no leader) |
 | `=` | Reset sidebar width to the configured preference (no leader) |
 | `<leader>s` | Toggle commit selector visibility (also `:set commits!`) |
 | `<leader>n` | Toggle relative line numbers (also `:set relativenumber!`) |
 | `Enter` | Select file (when file list is focused) |
+
+With `leader = " "`, press Space then d to toggle the diff layout. Rebind or
+unbind `toggle_diff_view` in [config](CONFIG.md#configurable-panel-keys); `:diff`
+remains available. Bare `d` still starts the delete prefix.
 
 ### Sidebar resizing
 

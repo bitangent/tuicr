@@ -1800,6 +1800,7 @@ fn handle_shared_normal_action(app: &mut App, action: Action) {
         Action::FocusDown => app.focus_pane_down(),
         Action::ToggleFileList => app.toggle_file_list(),
         Action::ToggleSingleFileView => app.toggle_single_file_view(),
+        Action::ToggleDiffView => app.toggle_diff_view_mode(),
         Action::NarrowSidebar => app.adjust_sidebar_width(-2),
         Action::WidenSidebar => app.adjust_sidebar_width(2),
         Action::ResetSidebarWidth => app.sidebar_width = app.default_sidebar_width,

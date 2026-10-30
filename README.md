@@ -317,6 +317,10 @@ Full options, theme resolution precedence, `comment_types` semantics, and `.tuic
 
 ## Keybindings
 
+Use `<leader>d` (default `;d`; Space then d with a Space leader) or `:diff`
+to toggle unified / side-by-side diff view. The shortcut is configurable as
+`toggle_diff_view` in [config](docs/CONFIG.md#configurable-panel-keys).
+
 A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 
 | Key | Action |
