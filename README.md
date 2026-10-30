@@ -91,6 +91,11 @@ tuicr update                # Update the active installation
 tuicr update 0.18.0         # Install a known-good version
 ```
 
+Use `tuicr -w --color-words` to emphasize changed words within paired diff
+lines, or `--color-words='[[:alnum:]_]+|[^[:space:]]'` for identifiers and
+punctuation. An explicit pattern requires `=` and uses Rust regex syntax.
+See [changed-word emphasis](docs/CLI.md#changed-word-emphasis) for details.
+
 Every flag, environment variable, and exit code in [docs/CLI.md](docs/CLI.md).
 
 Inside tuicr, navigate with `j`/`k`, press `c` to comment, then `y` to copy the review or

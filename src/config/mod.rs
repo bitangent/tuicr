@@ -198,6 +198,10 @@ pub struct AppConfig {
     /// (ASCII lowercase, no leading dot).
     pub ignore_whitespace_overrides: BTreeMap<String, bool>,
     pub wrap: Option<bool>,
+    /// Opt-in changed-token emphasis, independent of syntax highlighting.
+    pub color_words: Option<bool>,
+    /// Rust regex selecting word-diff tokens (default: Unicode non-whitespace runs).
+    pub word_diff_regex: Option<String>,
     /// Where wrapped unified diff rows continue: `"flow"` (the default) or
     /// `"gutter"`.
     pub wrap_style: Option<String>,
@@ -281,6 +285,8 @@ const KNOWN_KEYS: &[&str] = &[
     "ignore_whitespace",
     "ignore_whitespace_overrides",
     "wrap",
+    "color_words",
+    "word_diff_regex",
     "wrap_style",
     "relative_line_numbers",
     "export_legend",
@@ -402,6 +408,19 @@ fn read_string(table: &toml::Table, key: &str, warnings: &mut Vec<String>) -> Op
             "Warning: Config key '{key}' must be a string; ignoring value"
         ));
         None
+    }
+}
+
+fn read_word_diff_regex(table: &toml::Table, warnings: &mut Vec<String>) -> Option<String> {
+    let pattern = read_string(table, "word_diff_regex", warnings)?;
+    match regex::Regex::new(&pattern) {
+        Ok(_) => Some(pattern),
+        Err(error) => {
+            warnings.push(format!(
+                "Warning: Config key 'word_diff_regex' is invalid: {error}; using default"
+            ));
+            None
+        }
     }
 }
 
@@ -647,6 +666,8 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         ignore_whitespace,
         ignore_whitespace_overrides,
         wrap: read_bool(table, "wrap", &mut warnings),
+        color_words: read_bool(table, "color_words", &mut warnings),
+        word_diff_regex: read_word_diff_regex(table, &mut warnings),
         wrap_style: read_enum(table, "wrap_style", &["flow", "gutter"], &mut warnings),
         export_legend: read_bool(table, "export_legend", &mut warnings),
         cursor_line: read_bool(table, "cursor_line", &mut warnings),
@@ -975,6 +996,23 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, toml_content).expect("failed to write config");
         load_config_from_path(&path).expect("config should parse")
+    }
+
+    #[test]
+    fn color_words_config_is_opt_in_and_validates_regex() {
+        let outcome =
+            parse_config("color_words = true\nword_diff_regex = '[[:alnum:]_]+|[^[:space:]]'\n");
+        assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+        let config = outcome.config.unwrap();
+        assert_eq!(config.color_words, Some(true));
+        assert_eq!(
+            config.word_diff_regex.as_deref(),
+            Some("[[:alnum:]_]+|[^[:space:]]")
+        );
+        let bad = parse_config("color_words = 'yes'\nword_diff_regex = '['\n");
+        assert_eq!(bad.warnings.len(), 2);
+        assert!(bad.config.unwrap().word_diff_regex.is_none());
+        assert!(AppConfig::default().color_words.is_none());
     }
 
     #[test]

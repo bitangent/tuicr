@@ -41,6 +41,7 @@ take the last one given and boolean flags stay on once set, so
 
 | Flag | Short | Value | Description |
 |---|---|---|---|
+| `--color-words[=REGEX]` | | Optional Rust regex | Emphasize changed tokens inside paired deletion/addition lines; bare flag uses whitespace-delimited tokens. An explicit regex requires `=`. Overrides config. |
 | `--revisions` | `-r` | `REVSET` | Commit range / revset to review. Syntax depends on the VCS backend (`main..HEAD` for git, a jj revset for jj) |
 | `--theme` | | `THEME` | Color theme. Bundled names resolve first, then `<config>/themes/<name>.toml` |
 | `--appearance` | | `light`, `dark`, `system` | Appearance mode, used when no explicit theme is set |
@@ -55,6 +56,34 @@ take the last one given and boolean flags stay on once set, so
 | `--remote` | | `NAME` | Use a named VCS remote's fetch/pull URL for PR operations; conflicts with `--repo-url` |
 | `--version` | `-V` | | Print the version and exit |
 | `--help` | `-h` | | Print help and exit |
+
+### Changed-word emphasis
+
+```bash
+tuicr -w --color-words
+tuicr --color-words pr 42
+tuicr -w --color-words='[[:alnum:]_]+|[^[:space:]]'
+tuicr -w --color-words='[^[:space:]]'
+```
+
+The default token pattern is `\S+` (Unicode whitespace-delimited words).
+Custom patterns use **Rust `regex` syntax**, not Git's POSIX regex engine;
+this is not exact `git diff --color-words` parity. For example, Rust's POSIX
+classes such as `[[:alnum:]]` and `[[:space:]]` are ASCII classes, while
+`\w` and `\s` are Unicode-aware. Non-matching text is not emphasized;
+zero-width matches are skipped. Invalid patterns are rejected before launch.
+The second custom example compares individual non-ASCII-whitespace characters.
+
+Consecutive deleted and added lines are paired by position, not similarity.
+Unpaired lines retain ordinary diff coloring. Both unified and side-by-side
+views preserve syntax foregrounds and use the live theme for changed-token
+backgrounds. Emphasis expands to whole displayed grapheme clusters to preserve
+combining accents and joined emoji; token matching still uses the selected regex.
+Search and selection highlights take precedence.
+
+Work is bounded: lines over 16 KiB or 2,048 tokens fall back to ordinary
+diff coloring, as do pairs beyond a hunk's 1 MiB input or 1,000,000
+token-pair work budget. This keeps large/minified diffs responsive.
 
 `--repo-url` accepts GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, and Gerrit repos in HTTPS,
 SCP-style SSH, or `ssh://` form — for example

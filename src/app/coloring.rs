@@ -1,6 +1,18 @@
 use super::*;
 
 impl App {
+    pub fn word_diff_ranges(
+        &self,
+        file: usize,
+        hunk: usize,
+        line: usize,
+    ) -> &[std::ops::Range<usize>] {
+        self.color_words
+            .as_ref()
+            .map(|words| words.ranges(file, hunk, line))
+            .unwrap_or(&[])
+    }
+
     /// Color uncolored visible hunks. Call this before building a line.
     ///
     /// Returns how many hunks it visited.
@@ -8,9 +20,16 @@ impl App {
     /// `max_rows` is the frame's height.
     /// `diff_state.viewport_height` is written during render.
     pub(crate) fn color_visible_hunks(&mut self, max_rows: usize) -> usize {
+        let visible = self.visible_hunk_indices(max_rows);
+        if let Some(words) = &mut self.color_words {
+            for &(file, hunk) in &visible {
+                if let Some(hunk_data) = self.diff_files.get(file).and_then(|f| f.hunks.get(hunk)) {
+                    words.prepare(file, hunk, hunk_data);
+                }
+            }
+        }
         let highlighter = self.theme.syntax_highlighter();
-        let unvisited: Vec<(usize, usize)> = self
-            .visible_hunk_indices(max_rows)
+        let unvisited: Vec<(usize, usize)> = visible
             .into_iter()
             .filter(|key| self.colored_hunks.insert(*key))
             .collect();
@@ -97,6 +116,41 @@ mod tests {
     use crate::syntax::SyntaxHighlighter;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
+
+    #[test]
+    fn word_changes_are_lazy_and_independent_of_syntax_visitation() {
+        let mut files = vec![
+            uncolored_file("notes.zzzzz", 2),
+            uncolored_file("far.zzzzz", 200),
+        ];
+        for file in &mut files {
+            let lines = &mut file.hunks[0].lines;
+            lines[0].origin = LineOrigin::Deletion;
+            lines[0].content = "same old".into();
+            lines[1].origin = LineOrigin::Addition;
+            lines[1].content = "same new".into();
+        }
+        let mut app = app_with(files);
+        app.color_visible_hunks(1);
+        assert!(app.word_diff_ranges(0, 0, 0).is_empty());
+        app.color_words = Some(crate::word_diff::WordDiff::new(
+            regex::Regex::new(r"\S+").unwrap(),
+        ));
+        app.color_visible_hunks(24);
+        assert_eq!(app.word_diff_ranges(0, 0, 0), &[5..8]);
+        assert!(
+            app.diff_files[0].hunks[0].lines[0]
+                .highlighted_spans
+                .is_none()
+        );
+        app.diff_files[0].hunks[0].lines[0].content = "same new".into();
+        app.rebuild_annotations();
+        app.color_visible_hunks(24);
+        assert!(
+            app.word_diff_ranges(0, 0, 0).is_empty(),
+            "rebuild invalidates semantic ranges"
+        );
+    }
 
     fn uncolored_file(path: &str, lines_per_file: usize) -> DiffFile {
         let mut file = file(path, lines_per_file);

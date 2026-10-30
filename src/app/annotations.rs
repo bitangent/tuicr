@@ -63,6 +63,9 @@ impl App {
 
         self.line_annotations.clear();
         self.colored_hunks.clear();
+        if let Some(words) = &mut self.color_words {
+            words.clear();
+        }
 
         // Pre-index remote threads by (path, line, side) for quick lookup
         // during the file/hunk walk. Threads whose visibility is
