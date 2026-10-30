@@ -574,8 +574,6 @@ pub fn map_file_tree_mode_with_q_quits(key: KeyEvent, leader_key: char, q_quits:
     match (key.code, key.modifiers) {
         (KeyCode::Char('i'), KeyModifiers::NONE) => Action::FileTreeFilterInclude,
         (KeyCode::Char('e'), KeyModifiers::NONE) => Action::FileTreeFilterExclude,
-        (KeyCode::Char('I'), _) => Action::FileTreeClearInclude,
-        (KeyCode::Char('E'), _) => Action::FileTreeClearExclude,
         (KeyCode::Char('/'), _) => Action::FileTreeSearch,
         _ => map_normal_mode_with_q_quits(key, leader_key, q_quits),
     }
@@ -691,11 +689,11 @@ mod tests {
         );
         assert_eq!(
             map_file_tree_mode(key_shift('I'), DEFAULT_LEADER_KEY),
-            Action::FileTreeClearInclude
+            Action::None
         );
         assert_eq!(
             map_file_tree_mode(key_shift('E'), DEFAULT_LEADER_KEY),
-            Action::FileTreeClearExclude
+            Action::None
         );
         assert_eq!(
             map_file_tree_mode(key(KeyCode::Char('/')), DEFAULT_LEADER_KEY),

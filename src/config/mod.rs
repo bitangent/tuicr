@@ -229,7 +229,7 @@ pub struct AppConfig {
     /// Defaults to 4 (matching diff tab expansion).
     pub comment_tab_width: Option<usize>,
     pub leader: Option<char>,
-    /// Replacement bindings for the six panel-navigation actions.
+    /// Replacement bindings for the eight panel-navigation/filter-clear actions.
     pub keybindings: Option<BTreeMap<String, Vec<String>>>,
     pub editor: Option<String>,
     pub transparent_background: Option<bool>,

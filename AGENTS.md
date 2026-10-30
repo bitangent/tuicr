@@ -104,7 +104,7 @@ src/
 ├── input/
 │   ├── mod.rs
 │   ├── keybindings.rs   # Action enum, map_key_to_action() for each InputMode
-│   ├── panel_bindings.rs # Six configurable normal-review panel actions, parsing/validation/labels
+│   ├── panel_bindings.rs # Eight configurable normal-review panel/filter-clear actions, parsing/validation/labels
 │   └── mode.rs          # InputMode enum definition (unused, defined in app.rs)
 │
 ├── persistence/
@@ -177,7 +177,8 @@ Repository-managed agent integrations:
 - `file_filter.draft` makes the tree a text-input sub-state of `InputMode::Normal`, the same
   shape as `pr_filter_draft` for the target selector; `main.rs` routes to
   `map_file_tree_prompt_mode` while it is `Some`
-- Keys are focus-scoped via `map_file_tree_mode`: the tree claims `i`/`e`/`I`/`E`/`/`, the
+- Keys are focus-scoped: `map_file_tree_mode` claims `i`/`e`/`/`; configurable
+  `I`/`E` filter clears are tree-only via `map_panel_key`. The
   diff keeps `i` = edit comment and `/` = search diff
 
 **InputMode** (`src/app.rs`):
@@ -209,7 +210,7 @@ Repository-managed agent integrations:
 
 - All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, etc.)
 - `map_key_to_action(key, mode)` returns the appropriate Action
-- `App::panel_bindings` resolves only the six configurable panel focus/view actions. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route only in `Normal` outside `file_filter.draft`; help labels must use this same resolved map, not hardcoded leader suffixes.
+- `App::panel_bindings` resolves only the eight configurable panel focus/view and filter-clear actions. Filter-clear actions remain tree-only. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route only in `Normal` outside `file_filter.draft`; help labels must use this same resolved map, not hardcoded leader suffixes.
 - `map_global_key(key)` covers keys that mean the same thing in every mode (`Ctrl-l` → `Redraw`). `main.rs` checks it through `handler::handle_global_key` before the pending-prefix, vim-editor and per-mode maps, so these keys never reach a text buffer
 - `Redraw` (and `Event::Resize`) call `App::request_full_redraw`; the main loop takes the flag before the next draw and calls `TerminalSession::repaint_from_scratch` inside the synchronized update. Do not use ratatui's `Terminal::clear` there: it queries the cursor position, which times out under `--stdout`
 

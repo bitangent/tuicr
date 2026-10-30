@@ -20,7 +20,25 @@ pub fn map_panel_key(app: &App, key: KeyEvent, leader: bool) -> Option<Action> {
     if app.input_mode != InputMode::Normal || app.file_tree_prompt_editing() {
         return None;
     }
-    app.panel_bindings.resolve(key, leader)
+    // Preserve prefix priority even when a default clear key is the leader.
+    if !leader
+        && key.code == crossterm::event::KeyCode::Char(app.leader_key)
+        && matches!(
+            key.modifiers,
+            crossterm::event::KeyModifiers::NONE | crossterm::event::KeyModifiers::SHIFT
+        )
+    {
+        return None;
+    }
+    let action = app.panel_bindings.resolve(key, leader)?;
+    if matches!(
+        action,
+        Action::FileTreeClearInclude | Action::FileTreeClearExclude
+    ) && app.focused_panel != FocusedPanel::FileList
+    {
+        return None;
+    }
+    Some(action)
 }
 
 /// Columns scrolled per horizontal mouse wheel tick. Matches the default

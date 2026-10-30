@@ -15,7 +15,7 @@ Local themes live in the sibling `themes/` directory:
 | Windows       | `%APPDATA%\tuicr\themes\`                                             |
 
 Unknown keys are ignored with a startup warning, except invalid `[keybindings]`
-settings reset all six configurable bindings to defaults (see below).
+settings reset all eight configurable bindings to defaults (see below).
 
 ## Full example
 
@@ -76,6 +76,8 @@ focus_up = ["<leader>k"]
 focus_down = ["<leader>j"]
 toggle_file_list = ["<leader>e"]
 toggle_single_file_view = ["<leader>f"]
+file_tree_clear_include = ["I"]
+file_tree_clear_exclude = ["E"]
 
 [ignore_whitespace_overrides] # only used with ignore_whitespace = "auto"
 rs = false                    # keep Rust whitespace changes
@@ -118,7 +120,7 @@ session_header = true
 | `mouse`                    | `true`       | Wheel scrolling, clicks, and drag-to-select.                                                                                                               |
 | `mouse_scroll_lines`       | `3`          | Lines scrolled per mouse wheel tick in the diff, file list, comment list, help, and summary views; the commit list moves its cursor this many rows. Must be between 1 and 100; other values are ignored with a startup warning. |
 | `leader`                   | `;`          | Single-character prefix for panel focus, sidebar toggles, and review-comment shortcuts. Space is supported; multi-character values and control characters (such as Tab or newline) are ignored with a startup warning. |
-| `keybindings` | (default bindings below) | Override six panel-focus and view-toggle actions; see [Configurable panel keys](#configurable-panel-keys). |
+| `keybindings` | (default bindings below) | Override eight panel-focus, view-toggle, and filter-clear actions; see [Configurable panel keys](#configurable-panel-keys). |
 | `editor`                   | `$EDITOR`    | Editor command for the `e` / `:edit` handoff, split with shell-like quoting rules (e.g. `"code -w"`). Falls back to `$EDITOR`, then `vi`. |
 | `comment_vim`              | `false`      | Vim modal editing in the comment box; toggle at runtime with `:vim`. When off, default emacs/readline bindings.                                            |
 | `q_quits`                  | `false`      | Restore bare `q` as a quit key in review modes. `:q`, `ZZ`, and `ZQ` work regardless of this setting.                                                     |
@@ -143,7 +145,7 @@ session_header = true
 
 ## Configurable panel keys
 
-`[keybindings]` configures these six actions at startup:
+`[keybindings]` configures these eight actions at startup:
 
 | Action | Default | Behavior |
 | --- | --- | --- |
@@ -153,6 +155,8 @@ session_header = true
 | `focus_down` | `["<leader>j"]` | Move focus down between visible panes. |
 | `toggle_file_list` | `["<leader>e"]` | Show or hide the file tree/sidebar. |
 | `toggle_single_file_view` | `["<leader>f"]` | Switch between current-file-only and continuous diff view (also `:focus` / `:f`). |
+| `file_tree_clear_include` | `["I"]` | Clear the include filter (file tree only). |
+| `file_tree_clear_exclude` | `["E"]` | Clear the exclude filter (file tree only). |
 
 Omitting an action keeps its default. An array **replaces**, rather than adds to,
 that action's defaults. Include both bindings for aliases; `[]` unbinds the action.
@@ -182,15 +186,20 @@ character for other shifted characters (e.g. `!`, not `Shift-1`).
 Terminal-equivalent chords are checked for collisions; some terminals reserve or
 do not distinguish particular combinations, so choose bindings your terminal sends.
 
-These bindings apply only during normal review navigation, across pane focus. They do
+These bindings apply only during normal review navigation. Focus/view actions work
+across pane focus; filter-clear actions work only while the file tree is focused. They do
 not intercept command/search/comment entry, selectors, the theme picker, or the
 file-tree include/exclude/search prompts. The `?` help displays the effective
 bindings, including aliases and unbound actions.
 
 Unknown actions, malformed values, duplicate bindings, unreachable keys, or
 conflicts with fixed navigation/global keys produce a startup warning and reset
-**all six actions** to their defaults; unrelated config settings remain in effect.
+**all eight actions** to their defaults; unrelated config settings remain in effect.
 Validation checks the final map, so swapping two actions' bindings is allowed.
+For example, set `file_tree_clear_exclude = ["<leader>E"]` (or `[]`) and
+`toggle_file_list = ["E"]` to free `E` for toggling the sidebar. Leaving the
+clear-exclude default in place would conflict. Replaced or unbound filter-clear
+keys have no fixed fallback.
 Fixed normal-review bindings, the configured leader prefix, global `Ctrl-C` /
 `Ctrl-L`, and `<leader>c` / `<leader>s` / `<leader>n` cannot be reassigned here.
 Changing the config requires restarting tuicr. Arbitrary multi-key sequences,

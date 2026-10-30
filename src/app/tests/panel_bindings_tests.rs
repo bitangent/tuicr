@@ -140,3 +140,85 @@ fn panel_bindings_are_scoped_out_of_every_other_mode_and_tree_text_drafts() {
         app.cancel_file_tree_prompt();
     }
 }
+
+#[test]
+fn filter_clear_bindings_only_resolve_in_tree_navigation() {
+    use crate::handler::map_panel_key;
+    use crate::input::PanelBindings;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app_with(vec![file("one.rs", 10)]);
+    let cfg = toml::from_str("[keybindings]\nfile_tree_clear_include=['x', '<leader>a']\nfile_tree_clear_exclude=['<leader>E']\ntoggle_file_list=['E']").unwrap();
+    app.panel_bindings = PanelBindings::from_config(&cfg).unwrap();
+    for panel in [
+        FocusedPanel::Diff,
+        FocusedPanel::FileList,
+        FocusedPanel::Comments,
+        FocusedPanel::CommitSelector,
+    ] {
+        app.focused_panel = panel;
+        for (c, leader) in [('x', false), ('a', true)] {
+            let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+            assert_eq!(
+                map_panel_key(&app, key, leader),
+                if panel == FocusedPanel::FileList {
+                    Some(Action::FileTreeClearInclude)
+                } else {
+                    None
+                }
+            );
+        }
+        assert_eq!(
+            map_panel_key(
+                &app,
+                KeyEvent::new(KeyCode::Char('E'), KeyModifiers::SHIFT),
+                false
+            ),
+            Some(Action::ToggleFileList)
+        );
+    }
+    app.focused_panel = FocusedPanel::FileList;
+    let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+    for mode in [
+        InputMode::Comment,
+        InputMode::Command,
+        InputMode::Search,
+        InputMode::Help,
+        InputMode::MessageDetails,
+        InputMode::Summary,
+        InputMode::Confirm,
+        InputMode::CommitSelect,
+        InputMode::VisualSelect,
+        InputMode::SubmitResolver,
+        InputMode::SubmitConfirm,
+        InputMode::SubmitActionPicker,
+        InputMode::ThemePicker,
+    ] {
+        app.input_mode = mode;
+        assert_eq!(map_panel_key(&app, key, true), None);
+    }
+    app.input_mode = InputMode::Normal;
+    for prompt in [
+        FileTreePrompt::Include,
+        FileTreePrompt::Exclude,
+        FileTreePrompt::Search,
+    ] {
+        app.begin_file_tree_prompt(prompt);
+        assert_eq!(map_panel_key(&app, key, true), None);
+        app.cancel_file_tree_prompt();
+    }
+}
+
+#[test]
+fn filter_clear_defaults_do_not_steal_the_configured_leader_prefix() {
+    use crate::handler::map_panel_key;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app_with(vec![file("one.rs", 10)]);
+    app.focused_panel = FocusedPanel::FileList;
+    for leader in ['I', 'E'] {
+        app.leader_key = leader;
+        for modifiers in [KeyModifiers::NONE, KeyModifiers::SHIFT] {
+            let key = KeyEvent::new(KeyCode::Char(leader), modifiers);
+            assert_eq!(map_panel_key(&app, key, false), None);
+        }
+    }
+}
