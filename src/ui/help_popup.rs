@@ -67,13 +67,10 @@ pub fn render_message_details(frame: &mut Frame, app: &mut App) {
     );
 }
 
-const COMMENT_MODE_KEY_WIDTH: usize = "Shift-Enter/Alt-Enter/Ctrl-J".len();
-
 fn comment_mode_row(key: &str, description: &str) -> Line<'static> {
-    let padding = COMMENT_MODE_KEY_WIDTH.saturating_sub(key.width());
     Line::from(vec![
         Span::styled(
-            format!("  {key}{}", " ".repeat(padding + 1)),
+            format!("  {key}"),
             Style::default().add_modifier(Modifier::BOLD),
         ),
         Span::raw(description.to_string()),
@@ -188,7 +185,7 @@ fn help_lines(
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let leader = leader_display(leader);
-    vec![
+    let mut lines = vec![
         Line::from(Span::styled(
             "Navigation",
             Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
@@ -1067,7 +1064,26 @@ fn help_lines(
             ),
             Span::raw("Toggle this help"),
         ]),
-    ]
+    ];
+
+    // Key/description rows have two spans; headers and prose have one.
+    // Resolve the shared column after aliases and leader labels are expanded.
+    let description_column = lines
+        .iter()
+        .filter(|line| line.spans.len() == 2)
+        .map(|line| line.spans[0].content.trim_end().width())
+        .max()
+        .unwrap_or(0)
+        + 1;
+    for line in &mut lines {
+        if let [key, description] = line.spans.as_mut_slice() {
+            let label = key.content.trim_end();
+            key.content =
+                format!("{label}{}", " ".repeat(description_column - label.width())).into();
+            description.content = description.content.trim_start().to_owned().into();
+        }
+    }
+    lines
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -1166,28 +1182,106 @@ mod tests {
     }
 
     #[test]
-    fn should_align_comment_mode_descriptions_after_the_key_column() {
-        let keys = [
-            "Tab/S-Tab",
-            "Enter",
-            "Ctrl-S",
-            "Shift-Enter/Alt-Enter/Ctrl-J",
-            "Ctrl-A/E",
-            "Ctrl/Alt-Left/Right",
-            "Cmd-Left/Right",
-            "Esc/Ctrl-C",
-            "comment_vim",
-        ];
-
-        let description_columns: Vec<usize> = keys
+    fn should_align_space_leader_and_configured_filter_clear_aliases() {
+        let config: crate::config::AppConfig = toml::from_str(
+            r#"
+            leader = " "
+            [keybindings]
+            file_tree_clear_include = ["<leader>I", "Alt-I"]
+            file_tree_clear_exclude = []
+            "#,
+        )
+        .unwrap();
+        let bindings = PanelBindings::from_config(&config).unwrap();
+        let lines = help_lines(' ', false, &bindings);
+        assert_description_columns_align(&lines);
+        let clear_row = lines
             .iter()
-            .map(|key| {
-                comment_mode_row(key, "description").spans[0]
-                    .content
-                    .width()
+            .find(|line| {
+                line.spans.len() == 2 && line.spans[1].content == "Clear the include/exclude filter"
             })
-            .collect();
+            .unwrap();
+        assert_eq!(
+            clear_row.spans[0].content.trim(),
+            "Space I / Alt-I / unbound"
+        );
+        for key in ["Space h", "Space s", "Space n", "Space c"] {
+            assert!(
+                lines.iter().any(|line| line
+                    .spans
+                    .first()
+                    .is_some_and(|span| span.content.trim() == key)),
+                "missing {key}"
+            );
+        }
+    }
 
-        assert!(description_columns.iter().all(|&column| column == 31));
+    fn assert_description_columns_align(lines: &[Line<'_>]) {
+        let rows: Vec<_> = lines.iter().filter(|line| line.spans.len() == 2).collect();
+        let longest_key = rows
+            .iter()
+            .map(|line| line.spans[0].content.trim_end().width())
+            .max()
+            .unwrap();
+        for row in rows {
+            assert_eq!(row.spans[0].width(), longest_key + 1, "{row:?}");
+            assert!(!row.spans[1].content.starts_with(' '), "{row:?}");
+            assert_eq!(
+                row.spans[0].style,
+                Style::default().add_modifier(Modifier::BOLD)
+            );
+            assert_eq!(row.spans[1].style, Style::default());
+        }
+    }
+
+    #[test]
+    fn should_align_all_help_descriptions_one_space_after_the_longest_key() {
+        for vim_enabled in [false, true] {
+            let lines = help_lines(';', vim_enabled, &PanelBindings::default());
+            assert_description_columns_align(&lines);
+            assert_eq!(
+                lines[0],
+                Line::from(Span::styled(
+                    "Navigation",
+                    Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ))
+            );
+            assert_eq!(lines[1], Line::from(""));
+            assert!(lines.contains(&Line::from(Span::raw(
+                "  One file at a time. }/{ switch files, ]/[ walk across hunks. Default in `--all-files`.",
+            ))));
+        }
+    }
+
+    #[test]
+    fn should_align_configured_aliases_and_unbound_using_display_width() {
+        let config: crate::config::AppConfig = toml::from_str(
+            r#"
+            leader = "界"
+            [keybindings]
+            focus_left = ["Alt-Left", "Ctrl-Left", "<leader>界", "<leader>a"]
+            toggle_file_list = []
+        "#,
+        )
+        .unwrap();
+        let bindings = PanelBindings::from_config(&config).unwrap();
+        let lines = help_lines('界', false, &bindings);
+        assert_description_columns_align(&lines);
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.spans.len() == 2 && line.spans[0].content.trim() == "unbound")
+        );
+        let aliases = lines
+            .iter()
+            .find(|line| {
+                line.spans.len() == 2 && line.spans[1].content.starts_with("Move focus left")
+            })
+            .unwrap();
+        assert_eq!(
+            aliases.spans[0].content.trim(),
+            "Alt-Left / Ctrl-Left / 界界 / 界a"
+        );
+        assert_ne!(aliases.spans[0].content.len(), aliases.spans[0].width());
     }
 }
