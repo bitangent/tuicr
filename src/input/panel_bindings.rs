@@ -127,16 +127,21 @@ impl PanelBindings {
     }
 }
 
+/// Display the leader prefix, separating named or escaped keys from their suffix.
+pub(crate) fn leader_display(leader: char) -> String {
+    if leader == ' ' {
+        "Space ".to_string()
+    } else if leader.is_whitespace() || leader.is_control() {
+        format!("{} ", leader.escape_default())
+    } else {
+        leader.to_string()
+    }
+}
+
 impl Binding {
     fn label(&self, leader: char) -> String {
         let mut label = if self.leader {
-            if leader == ' ' {
-                "Space ".to_string()
-            } else if leader.is_whitespace() || leader.is_control() {
-                format!("{} ", leader.escape_default())
-            } else {
-                leader.to_string()
-            }
+            leader_display(leader)
         } else {
             String::new()
         };

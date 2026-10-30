@@ -141,6 +141,8 @@ session_header = true
 | `comment_types`            | (none)       | Comment categories. Untyped by default. See [Comment types](#comment-types).                                                                               |
 | `export_legend`            | `true`       | Include the `Comment types:` legend in the exported review. Superseded by `legend` under [Export](#export).                                                |
 
+With `leader = " "`, help labels show the word `Space`, for example `Space c`.
+
 ## Configurable panel keys
 
 `[keybindings]` configures these six actions at startup:

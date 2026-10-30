@@ -8,7 +8,10 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
-use crate::input::{Action, panel_bindings::PanelBindings};
+use crate::input::{
+    Action,
+    panel_bindings::{PanelBindings, leader_display},
+};
 use crate::ui::styles;
 
 pub fn render_message_details(frame: &mut Frame, app: &mut App) {
@@ -62,19 +65,6 @@ pub fn render_message_details(frame: &mut Frame, app: &mut App) {
         )),
         inner,
     );
-}
-
-/// Printable stand-in for the configured leader key.
-///
-/// A whitespace leader (`leader = " "`) is a valid config value but renders as a
-/// blank in the help text, so substitute a visible glyph. The substitute must be
-/// exactly one display column wide: the help lines pad each chord to a fixed width.
-fn leader_display(leader: char) -> char {
-    if leader.is_whitespace() {
-        '\u{2423}'
-    } else {
-        leader
-    }
 }
 
 const COMMENT_MODE_KEY_WIDTH: usize = "Shift-Enter/Alt-Enter/Ctrl-J".len();
@@ -1089,15 +1079,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_width::UnicodeWidthChar;
 
     #[test]
-    fn should_show_all_six_default_bindings_with_the_configured_leader() {
+    fn should_show_default_and_fixed_bindings_with_the_configured_leader() {
         let text = help_lines(',', false, &PanelBindings::default())
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
             .collect::<String>();
-        for key in [",h", ",l", ",k", ",j", ",e", ",f"] {
+        for key in [",h", ",l", ",k", ",j", ",e", ",f", ",s", ",n", ",c"] {
             assert!(text.contains(key), "missing {key}");
         }
         assert!(!text.contains(";f"));
@@ -1151,33 +1140,24 @@ mod tests {
     }
 
     #[test]
-    fn should_substitute_a_visible_glyph_for_a_whitespace_leader() {
-        // given
-        let leader = ' ';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed, '\u{2423}');
-    }
-
-    #[test]
-    fn should_leave_an_ordinary_leader_unchanged() {
-        // given
-        let leader = ',';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed, ',');
-    }
-
-    #[test]
-    fn should_keep_the_substitute_one_display_column_wide() {
-        // given
-        let leader = '\t';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed.width(), Some(1));
+    fn should_show_space_leader_consistently_for_default_and_configured_help() {
+        for overrides in ["", "\n[keybindings]\nfocus_left=['<leader>a']"] {
+            let config: crate::config::AppConfig =
+                toml::from_str(&format!("leader=' '{overrides}")).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let text = help_lines(config.leader.unwrap(), false, &bindings)
+                .iter()
+                .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<String>();
+            let left = if overrides.is_empty() { "h" } else { "a" };
+            for suffix in [left, "l", "k", "j", "e", "f", "s", "n", "c"] {
+                assert!(
+                    text.contains(&format!("Space {suffix}")),
+                    "missing Space {suffix}"
+                );
+            }
+            assert!(!text.contains('\u{2423}'));
+        }
     }
 
     #[test]
