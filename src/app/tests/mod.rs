@@ -28,3 +28,5 @@ mod tree_tests;
 mod visual_selection_tests;
 
 mod sidebar_tests;
+
+mod panel_bindings_tests;

@@ -7,3 +7,6 @@ pub use keybindings::{
     map_global_key, map_key_to_action, map_key_to_action_with_q_quits, map_target_filter_mode,
     map_theme_picker_filter_mode,
 };
+
+pub mod panel_bindings;
+pub use panel_bindings::PanelBindings;

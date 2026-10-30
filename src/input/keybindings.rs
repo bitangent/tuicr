@@ -30,6 +30,14 @@ pub enum Action {
     MouseScrollUp(usize),
     MouseScrollDown(usize),
 
+    // Configurable normal-review panel actions
+    FocusLeft,
+    FocusRight,
+    FocusUp,
+    FocusDown,
+    ToggleFileList,
+    ToggleSingleFileView,
+
     // Panel focus
     ToggleFocus,
     ToggleFocusReverse,

@@ -229,6 +229,8 @@ pub struct AppConfig {
     /// Defaults to 4 (matching diff tab expansion).
     pub comment_tab_width: Option<usize>,
     pub leader: Option<char>,
+    /// Replacement bindings for the six panel-navigation actions.
+    pub keybindings: Option<BTreeMap<String, Vec<String>>>,
     pub editor: Option<String>,
     pub transparent_background: Option<bool>,
     pub scroll_offset: Option<usize>,
@@ -304,6 +306,7 @@ const KNOWN_KEYS: &[&str] = &[
     "q_quits",
     "comment_tab_width",
     "leader",
+    "keybindings",
     "editor",
     "transparent_background",
     "scroll_offset",
@@ -435,7 +438,14 @@ fn read_leader(table: &toml::Table, warnings: &mut Vec<String>) -> Option<char> 
     let raw = read_string(table, "leader", warnings)?;
     let mut chars = raw.chars();
     match (chars.next(), chars.next()) {
-        (Some(leader), None) => Some(leader),
+        (Some(leader), None) if !leader.is_control() => Some(leader),
+        (Some(_), None) => {
+            warnings.push(
+                "Warning: Config key 'leader' cannot be a control character; ignoring value"
+                    .to_string(),
+            );
+            None
+        }
         _ => {
             warnings.push(
                 "Warning: Config key 'leader' must be a single character; ignoring value"
@@ -643,7 +653,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
     }
     let ignore_whitespace_overrides = parsed_overrides.unwrap_or_default();
 
-    let config = AppConfig {
+    let mut config = AppConfig {
         theme: read_string(table, "theme", &mut warnings),
         theme_dark: read_string(table, "theme_dark", &mut warnings),
         theme_light: read_string(table, "theme_light", &mut warnings),
@@ -699,6 +709,17 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         q_quits: read_bool(table, "q_quits", &mut warnings),
         comment_tab_width: read_usize(table, "comment_tab_width", &mut warnings),
         leader: read_leader(table, &mut warnings),
+        keybindings: table.get("keybindings").and_then(|value| {
+            match value.clone().try_into::<BTreeMap<String, Vec<String>>>() {
+                Ok(bindings) => Some(bindings),
+                Err(err) => {
+                    warnings.push(format!(
+                        "Warning: Invalid keybindings: {err}; using default panel bindings"
+                    ));
+                    None
+                }
+            }
+        }),
         editor: read_string(table, "editor", &mut warnings),
         transparent_background: read_bool(table, "transparent_background", &mut warnings),
         scroll_offset: read_usize(table, "scroll_offset", &mut warnings),
@@ -714,6 +735,13 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
             .get("export")
             .and_then(|v| parse_export(v, &mut warnings)),
     };
+
+    if let Err(err) = crate::input::PanelBindings::from_config(&config) {
+        warnings.push(format!(
+            "Warning: Invalid keybindings: {err}; using default panel bindings"
+        ));
+        config.keybindings = None;
+    }
 
     for key in table.keys() {
         if !KNOWN_KEYS.contains(&key.as_str()) {
@@ -1065,6 +1093,57 @@ mod tests {
         assert_eq!(cfg.theme_light.as_deref(), Some("gruvbox-light"));
         assert_eq!(cfg.appearance.as_deref(), Some("system"));
         assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn panel_keybindings_invalid_section_falls_back_without_losing_other_settings() {
+        for section in [
+            "keybindings=true",
+            "[keybindings]\nfocus_left='Alt-Left'",
+            "[keybindings]\nfocus_left=[42]",
+            "[keybindings]\nunknown=[]",
+            "[keybindings]\nfocus_left=['<leader>l']",
+            "[keybindings]\nfocus_left=['Ctrl-c']",
+        ] {
+            let outcome = parse_config(&format!("theme='light'\nwrap=true\n{section}\n"));
+            let config = outcome.config.unwrap();
+            assert_eq!(config.theme.as_deref(), Some("light"));
+            assert_eq!(config.wrap, Some(true));
+            assert!(config.keybindings.is_none(), "{section}");
+            assert_eq!(
+                outcome.warnings.len(),
+                1,
+                "{section}: {:?}",
+                outcome.warnings
+            );
+            assert!(outcome.warnings[0].contains("default panel bindings"));
+        }
+    }
+
+    #[test]
+    fn panel_leader_rejects_unreachable_control_characters_but_keeps_space() {
+        for leader in [r"\t", r"\n", r"\r", r"\u001b"] {
+            let outcome = parse_config(&format!(
+                "leader=\"{leader}\"\n[keybindings]\nfocus_left=['<leader>a']"
+            ));
+            let config = outcome.config.unwrap();
+            assert_eq!(config.leader, None);
+            assert!(config.keybindings.is_some());
+            assert_eq!(outcome.warnings.len(), 1);
+            assert!(outcome.warnings[0].contains("control character"));
+        }
+        let outcome = parse_config("leader=' '");
+        assert_eq!(outcome.config.unwrap().leader, Some(' '));
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn panel_keybindings_valid_overrides_are_recognized() {
+        let outcome = parse_config(
+            "theme = 'light'\n[keybindings]\nfocus_left = ['Alt-Left', '<leader>a']\ntoggle_file_list = []\n",
+        );
+        assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+        assert_eq!(outcome.config.unwrap().theme.as_deref(), Some("light"));
     }
 
     #[test]

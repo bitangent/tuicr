@@ -14,7 +14,8 @@ Local themes live in the sibling `themes/` directory:
 | Linux / macOS | `$XDG_CONFIG_HOME/tuicr/themes/` (default: `~/.config/tuicr/themes/`) |
 | Windows       | `%APPDATA%\tuicr\themes\`                                             |
 
-Unknown keys are ignored with a startup warning.
+Unknown keys are ignored with a startup warning, except invalid `[keybindings]`
+settings reset all six configurable bindings to defaults (see below).
 
 ## Full example
 
@@ -68,6 +69,14 @@ comment_types = [
   { id = "nit", label = "nitpick", definition = "small optional tweaks", color = "#d19a66" },
 ]
 
+[keybindings]
+focus_left = ["<leader>h"]
+focus_right = ["<leader>l"]
+focus_up = ["<leader>k"]
+focus_down = ["<leader>j"]
+toggle_file_list = ["<leader>e"]
+toggle_single_file_view = ["<leader>f"]
+
 [ignore_whitespace_overrides] # only used with ignore_whitespace = "auto"
 rs = false                    # keep Rust whitespace changes
 custom = true                 # ignore whitespace in *.custom files
@@ -108,7 +117,8 @@ session_header = true
 | `show_reviewed`            | `true`       | Whether files already marked reviewed appear in the file tree and the diff. Set `false` to start a session showing only what is left. Toggle with `:set reviewed!`. |
 | `mouse`                    | `true`       | Wheel scrolling, clicks, and drag-to-select.                                                                                                               |
 | `mouse_scroll_lines`       | `3`          | Lines scrolled per mouse wheel tick in the diff, file list, comment list, help, and summary views; the commit list moves its cursor this many rows. Must be between 1 and 100; other values are ignored with a startup warning. |
-| `leader`                   | `;`          | Single-character prefix for panel focus, sidebar toggles, and review-comment shortcuts. Invalid multi-character values are ignored with a startup warning. |
+| `leader`                   | `;`          | Single-character prefix for panel focus, sidebar toggles, and review-comment shortcuts. Space is supported; multi-character values and control characters (such as Tab or newline) are ignored with a startup warning. |
+| `keybindings` | (default bindings below) | Override six panel-focus and view-toggle actions; see [Configurable panel keys](#configurable-panel-keys). |
 | `editor`                   | `$EDITOR`    | Editor command for the `e` / `:edit` handoff, split with shell-like quoting rules (e.g. `"code -w"`). Falls back to `$EDITOR`, then `vi`. |
 | `comment_vim`              | `false`      | Vim modal editing in the comment box; toggle at runtime with `:vim`. When off, default emacs/readline bindings.                                            |
 | `q_quits`                  | `false`      | Restore bare `q` as a quit key in review modes. `:q`, `ZZ`, and `ZQ` work regardless of this setting.                                                     |
@@ -130,6 +140,61 @@ session_header = true
 | `backend`                  | `libgit2`    | Git backend: `libgit2` or `cli`. Sparse-checkout repos auto-route to `cli`.                                                                                |
 | `comment_types`            | (none)       | Comment categories. Untyped by default. See [Comment types](#comment-types).                                                                               |
 | `export_legend`            | `true`       | Include the `Comment types:` legend in the exported review. Superseded by `legend` under [Export](#export).                                                |
+
+## Configurable panel keys
+
+`[keybindings]` configures these six actions at startup:
+
+| Action | Default | Behavior |
+| --- | --- | --- |
+| `focus_left` | `["<leader>h"]` | Move focus left, including between side-by-side diff sides. |
+| `focus_right` | `["<leader>l"]` | Move focus right, including between side-by-side diff sides. |
+| `focus_up` | `["<leader>k"]` | Move focus up between visible panes. |
+| `focus_down` | `["<leader>j"]` | Move focus down between visible panes. |
+| `toggle_file_list` | `["<leader>e"]` | Show or hide the file tree/sidebar. |
+| `toggle_single_file_view` | `["<leader>f"]` | Switch between current-file-only and continuous diff view (also `:focus` / `:f`). |
+
+Omitting an action keeps its default. An array **replaces**, rather than adds to,
+that action's defaults. Include both bindings for aliases; `[]` unbinds the action.
+`<leader>` resolves to the existing `leader` setting (default `;`). For example:
+
+```toml
+leader = ","
+
+[keybindings]
+focus_left = ["Alt-Left", "<leader>h"]
+focus_right = ["Alt-Right", "<leader>l"]
+focus_up = ["Alt-Up"]
+focus_down = ["Alt-Down"]
+toggle_file_list = ["<leader>t"]
+toggle_single_file_view = [] # :focus / :f still work
+```
+
+Each string is one key/chord, or `<leader>` followed by one key/chord. Use a
+case-sensitive character, or a named key: `Space`, `Tab`, `BackTab`, `Enter`
+(`Return`), `Esc` (`Escape`), `Backspace`, `Delete` (`Del`), `Insert` (`Ins`),
+`Left`, `Right`, `Up`, `Down`, `Home`, `End`, `PageUp` (`PgUp`), `PageDown`
+(`PgDown`), or `F1`–`F24`. Names are case-insensitive. Prefix modifiers with
+`Ctrl-` (or `Control-`), `Alt-`, and/or `Shift-`, for example `Alt-Left` or
+`<leader>Ctrl-Right`. Angle brackets around the final chord are optional.
+For character chords, `Shift-` is supported with ASCII letters. Use the resulting
+character for other shifted characters (e.g. `!`, not `Shift-1`).
+Terminal-equivalent chords are checked for collisions; some terminals reserve or
+do not distinguish particular combinations, so choose bindings your terminal sends.
+
+These bindings apply only during normal review navigation, across pane focus. They do
+not intercept command/search/comment entry, selectors, the theme picker, or the
+file-tree include/exclude/search prompts. The `?` help displays the effective
+bindings, including aliases and unbound actions.
+
+Unknown actions, malformed values, duplicate bindings, unreachable keys, or
+conflicts with fixed navigation/global keys produce a startup warning and reset
+**all six actions** to their defaults; unrelated config settings remain in effect.
+Validation checks the final map, so swapping two actions' bindings is allowed.
+Fixed normal-review bindings, the configured leader prefix, global `Ctrl-C` /
+`Ctrl-L`, and `<leader>c` / `<leader>s` / `<leader>n` cannot be reassigned here.
+Changing the config requires restarting tuicr. Arbitrary multi-key sequences,
+macros, mode-specific maps, and remapping other commands are not supported.
 
 ## Whitespace comparison
 

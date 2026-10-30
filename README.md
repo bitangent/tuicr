@@ -278,6 +278,10 @@ store.add_comment(
 
 Path: `~/.config/tuicr/config.toml` on Linux/macOS, `%APPDATA%\tuicr\config.toml` on Windows.
 
+Panel focus, file-tree visibility, and current-file-only/continuous diff toggling
+can be rebound with [`[keybindings]`](docs/CONFIG.md#configurable-panel-keys).
+Defaults stay unchanged; `?` shows your active bindings.
+
 ```toml
 theme = "catppuccin-mocha"
 diff_view = "side-by-side"   # or "unified"

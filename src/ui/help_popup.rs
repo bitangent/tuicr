@@ -8,6 +8,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
+use crate::input::{Action, panel_bindings::PanelBindings};
 use crate::ui::styles;
 
 pub fn render_message_details(frame: &mut Frame, app: &mut App) {
@@ -91,7 +92,6 @@ fn comment_mode_row(key: &str, description: &str) -> Line<'static> {
 
 pub fn render_help(frame: &mut Frame, app: &mut App) {
     let theme = &app.theme;
-    let leader = leader_display(app.leader_key);
     // Center over the diff pane (matches the submit-modal anchoring) so the
     // file list doesn't tug the popup's visual centre off to one side. Fall
     // back to the full frame when no diff area is laid out yet.
@@ -110,7 +110,93 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    let help_text = vec![
+    let help_text = help_lines(app.leader_key, app.comment_vim_enabled, &app.panel_bindings);
+
+    // Update help state with total lines and viewport height
+    let total_lines = help_text.len();
+    let viewport_height = inner.height as usize;
+    app.help_state.total_lines = total_lines;
+    app.help_state.viewport_height = viewport_height;
+    app.help_state.viewport_width = inner.width as usize;
+    app.help_state.max_line_width = help_text.iter().map(Line::width).max().unwrap_or(0);
+    let max_horizontal_offset = app.help_state.max_horizontal_offset();
+    app.help_state.horizontal_offset = app.help_state.horizontal_offset.min(max_horizontal_offset);
+    app.help_state.searchable_lines = help_text
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect()
+        })
+        .collect();
+
+    // Calculate if we can scroll
+    let can_scroll_up = app.help_state.scroll_offset > 0;
+    let can_scroll_down = app.help_state.scroll_offset + viewport_height < total_lines;
+
+    // Apply scroll offset
+    let visible_lines: Vec<Line> = help_text
+        .into_iter()
+        .enumerate()
+        .skip(app.help_state.scroll_offset)
+        .take(viewport_height)
+        .map(|(line_idx, line)| {
+            if app.help_state.current_match_line == Some(line_idx) {
+                line.style(styles::selected_style(theme))
+            } else {
+                line
+            }
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(visible_lines)
+        .style(styles::popup_style(theme))
+        .scroll((
+            0,
+            app.help_state.horizontal_offset.min(u16::MAX as usize) as u16,
+        ));
+    frame.render_widget(paragraph, inner);
+
+    // Render scroll indicators
+    let indicator_style = styles::help_indicator_style(theme);
+
+    if can_scroll_up {
+        let up_indicator = Paragraph::new(Line::from(Span::styled("▲ more", indicator_style)));
+        let up_area = Rect {
+            x: inner.x + inner.width.saturating_sub(8),
+            y: inner.y,
+            width: 7,
+            height: 1,
+        };
+        frame.render_widget(up_indicator, up_area);
+    }
+
+    if can_scroll_down {
+        let down_indicator = Paragraph::new(Line::from(Span::styled("▼ more", indicator_style)));
+        let down_area = Rect {
+            x: inner.x + inner.width.saturating_sub(8),
+            y: inner.y + inner.height.saturating_sub(1),
+            width: 7,
+            height: 1,
+        };
+        frame.render_widget(down_indicator, down_area);
+    }
+}
+
+fn help_lines(
+    leader: char,
+    comment_vim_enabled: bool,
+    bindings: &PanelBindings,
+) -> Vec<Line<'static>> {
+    let focus_left = bindings.labels(Action::FocusLeft, leader);
+    let focus_right = bindings.labels(Action::FocusRight, leader);
+    let focus_up = bindings.labels(Action::FocusUp, leader);
+    let focus_down = bindings.labels(Action::FocusDown, leader);
+    let toggle_file_list = bindings.labels(Action::ToggleFileList, leader);
+    let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
+    let leader = leader_display(leader);
+    vec![
         Line::from(Span::styled(
             "Navigation",
             Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
@@ -230,21 +316,35 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(vec![
             Span::styled(
-                format!("  {leader}h/{leader}l     "),
+                format!("  {focus_left}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Move focus left/right (side-by-side: between the two sides)"),
+            Span::raw("Move focus left (side-by-side: between the two sides)"),
         ]),
         Line::from(vec![
             Span::styled(
-                format!("  {leader}k/{leader}j     "),
+                format!("  {focus_right}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Move focus up/down between panes"),
+            Span::raw("Move focus right (side-by-side: between the two sides)"),
         ]),
         Line::from(vec![
             Span::styled(
-                format!("  {leader}e        "),
+                format!("  {focus_up}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Move focus up between panes"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  {focus_down}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Move focus down between panes"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  {toggle_file_list}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Toggle file list visibility"),
@@ -265,10 +365,10 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(vec![
             Span::styled(
-                format!("  {leader}f        "),
+                format!("  {toggle_single_file}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Toggle single-file view (also `:focus` / `:f`)"),
+            Span::raw("Toggle current-file-only / continuous diff (also `:focus` / `:f`)"),
         ]),
         Line::from(vec![
             Span::styled(
@@ -297,7 +397,7 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(""),
         Line::from(Span::styled(
-            format!("Single-file view (`:focus`, `:f`, {leader}f)"),
+            format!("Single-file view (`:focus`, `:f`, {toggle_single_file})"),
             Style::default().add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
         )),
         Line::from(""),
@@ -662,7 +762,7 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         comment_mode_row("Esc/Ctrl-C", "Cancel"),
         comment_mode_row(
             "comment_vim",
-            if app.comment_vim_enabled {
+            if comment_vim_enabled {
                 "Vim ON (i/a:insert Esc:normal hjkl dd/ciw/x u; S-Enter:save S-Esc:discard :w/:q)"
             } else {
                 "Set comment_vim=true (or :vim) for vim modal editing"
@@ -786,7 +886,9 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
                 "  :focus    ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw(format!("Toggle single-file view (alias `:f`, {leader}f)")),
+            Span::raw(format!(
+                "Toggle current-file-only / continuous diff (alias `:f`, {toggle_single_file})"
+            )),
         ]),
         Line::from(vec![
             Span::styled(
@@ -973,78 +1075,7 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
             ),
             Span::raw("Toggle this help"),
         ]),
-    ];
-
-    // Update help state with total lines and viewport height
-    let total_lines = help_text.len();
-    let viewport_height = inner.height as usize;
-    app.help_state.total_lines = total_lines;
-    app.help_state.viewport_height = viewport_height;
-    app.help_state.viewport_width = inner.width as usize;
-    app.help_state.max_line_width = help_text.iter().map(Line::width).max().unwrap_or(0);
-    let max_horizontal_offset = app.help_state.max_horizontal_offset();
-    app.help_state.horizontal_offset = app.help_state.horizontal_offset.min(max_horizontal_offset);
-    app.help_state.searchable_lines = help_text
-        .iter()
-        .map(|line| {
-            line.spans
-                .iter()
-                .map(|span| span.content.as_ref())
-                .collect()
-        })
-        .collect();
-
-    // Calculate if we can scroll
-    let can_scroll_up = app.help_state.scroll_offset > 0;
-    let can_scroll_down = app.help_state.scroll_offset + viewport_height < total_lines;
-
-    // Apply scroll offset
-    let visible_lines: Vec<Line> = help_text
-        .into_iter()
-        .enumerate()
-        .skip(app.help_state.scroll_offset)
-        .take(viewport_height)
-        .map(|(line_idx, line)| {
-            if app.help_state.current_match_line == Some(line_idx) {
-                line.style(styles::selected_style(theme))
-            } else {
-                line
-            }
-        })
-        .collect();
-
-    let paragraph = Paragraph::new(visible_lines)
-        .style(styles::popup_style(theme))
-        .scroll((
-            0,
-            app.help_state.horizontal_offset.min(u16::MAX as usize) as u16,
-        ));
-    frame.render_widget(paragraph, inner);
-
-    // Render scroll indicators
-    let indicator_style = styles::help_indicator_style(theme);
-
-    if can_scroll_up {
-        let up_indicator = Paragraph::new(Line::from(Span::styled("▲ more", indicator_style)));
-        let up_area = Rect {
-            x: inner.x + inner.width.saturating_sub(8),
-            y: inner.y,
-            width: 7,
-            height: 1,
-        };
-        frame.render_widget(up_indicator, up_area);
-    }
-
-    if can_scroll_down {
-        let down_indicator = Paragraph::new(Line::from(Span::styled("▼ more", indicator_style)));
-        let down_area = Rect {
-            x: inner.x + inner.width.saturating_sub(8),
-            y: inner.y + inner.height.saturating_sub(1),
-            width: 7,
-            height: 1,
-        };
-        frame.render_widget(down_indicator, down_area);
-    }
+    ]
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -1059,6 +1090,65 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 mod tests {
     use super::*;
     use unicode_width::UnicodeWidthChar;
+
+    #[test]
+    fn should_show_all_six_default_bindings_with_the_configured_leader() {
+        let text = help_lines(',', false, &PanelBindings::default())
+            .iter()
+            .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+            .collect::<String>();
+        for key in [",h", ",l", ",k", ",j", ",e", ",f"] {
+            assert!(text.contains(key), "missing {key}");
+        }
+        assert!(!text.contains(";f"));
+    }
+
+    #[test]
+    fn should_show_remapped_aliases_and_unbound_actions_everywhere_in_help() {
+        let config: crate::config::AppConfig = toml::from_str(
+            r#"
+            leader = ","
+            [keybindings]
+            focus_left = ["Alt-Left", "<leader>a"]
+            toggle_file_list = []
+            toggle_single_file_view = ["<leader>v"]
+        "#,
+        )
+        .unwrap();
+        let bindings = PanelBindings::from_config(&config).unwrap();
+        let text = help_lines(',', false, &bindings)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Alt-Left / ,a"));
+        assert!(
+            text.lines()
+                .any(|line| line.contains("unbound") && line.contains("Toggle file list"))
+        );
+        assert_eq!(
+            text.matches(",v").count(),
+            3,
+            "toggle row, section heading, and :focus description"
+        );
+        assert!(!text.contains(",f"));
+        assert!(!text.contains(",h"));
+        assert!(!text.contains(",e"));
+    }
+
+    #[test]
+    fn should_explain_single_file_toggle_as_current_only_versus_continuous() {
+        let text = help_lines(';', false, &PanelBindings::default())
+            .iter()
+            .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+            .collect::<String>();
+        assert!(text.contains("current-file-only / continuous diff"));
+    }
 
     #[test]
     fn should_substitute_a_visible_glyph_for_a_whitespace_leader() {

@@ -275,6 +275,24 @@ impl App {
         self.focused_panel = FocusedPanel::Diff;
     }
 
+    /// Move up through the sidebar stack, or into the visible commit selector.
+    pub fn focus_pane_up(&mut self) {
+        if self.focused_panel == FocusedPanel::Comments {
+            self.focused_panel = FocusedPanel::FileList;
+        } else if self.has_inline_commit_selector() {
+            self.focused_panel = FocusedPanel::CommitSelector;
+        }
+    }
+
+    /// Move down into comments when available, otherwise into the diff.
+    pub fn focus_pane_down(&mut self) {
+        if self.focused_panel == FocusedPanel::FileList && self.has_comment_navigator_items() {
+            self.focused_panel = FocusedPanel::Comments;
+        } else {
+            self.focused_panel = FocusedPanel::Diff;
+        }
+    }
+
     /// Set the side the cursor targets in side-by-side view (drives the caret
     /// and which side a new comment attaches to).
     pub fn set_cursor_side(&mut self, side: LineSide) {
