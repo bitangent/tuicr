@@ -579,10 +579,17 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
-                format!("  {clear_include} / {clear_exclude}  "),
+                format!("  {clear_include}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Clear the include/exclude filter"),
+            Span::raw("Clear the include filter"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  {clear_exclude}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Clear the exclude filter"),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1136,7 +1143,14 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Alt-Left / ,a"));
-        assert!(text.contains("unbound / ,E / Alt-E"));
+        assert!(
+            text.lines().any(|line| {
+                line.contains("unbound") && line.contains("Clear the include filter")
+            })
+        );
+        assert!(text.lines().any(|line| {
+            line.contains(",E / Alt-E") && line.contains("Clear the exclude filter")
+        }));
         assert!(
             text.lines()
                 .any(|line| line.contains("unbound") && line.contains("Toggle file list"))
@@ -1149,6 +1163,51 @@ mod tests {
         assert!(!text.contains(",f"));
         assert!(!text.contains(",h"));
         assert!(!text.contains(",e"));
+    }
+
+    #[test]
+    fn should_show_each_filter_clear_on_its_own_help_row() {
+        for (config, include, exclude) in [
+            ("", "I", "E"),
+            (
+                "[keybindings]\nfile_tree_clear_include=['Alt-i']\nfile_tree_clear_exclude=['Alt-e']",
+                "Alt-i",
+                "Alt-e",
+            ),
+            (
+                "leader=' '\n[keybindings]\nfile_tree_clear_include=['<leader>I', 'Alt-i']\nfile_tree_clear_exclude=['<leader>E', 'Alt-e']",
+                "Space I / Alt-i",
+                "Space E / Alt-e",
+            ),
+            (
+                "[keybindings]\nfile_tree_clear_include=[]\nfile_tree_clear_exclude=[]",
+                "unbound",
+                "unbound",
+            ),
+        ] {
+            let config: crate::config::AppConfig = toml::from_str(config).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let lines = help_lines(config.leader.unwrap_or(';'), false, &bindings);
+            let rows: Vec<_> = lines
+                .iter()
+                .filter(|line| {
+                    line.spans.iter().any(|span| {
+                        span.content == "Clear the include filter"
+                            || span.content == "Clear the exclude filter"
+                    })
+                })
+                .collect();
+            assert_eq!(rows.len(), 2, "each clear action needs its own row");
+            for (row, key, description) in [
+                (rows[0], include, "Clear the include filter"),
+                (rows[1], exclude, "Clear the exclude filter"),
+            ] {
+                assert_eq!(row.spans.len(), 2);
+                assert_eq!(row.spans[0].content.trim(), key);
+                assert!(row.spans[0].style.add_modifier.contains(Modifier::BOLD));
+                assert_eq!(row.spans[1].content, description);
+            }
+        }
     }
 
     #[test]
@@ -1195,16 +1254,16 @@ mod tests {
         let bindings = PanelBindings::from_config(&config).unwrap();
         let lines = help_lines(' ', false, &bindings);
         assert_description_columns_align(&lines);
-        let clear_row = lines
-            .iter()
-            .find(|line| {
-                line.spans.len() == 2 && line.spans[1].content == "Clear the include/exclude filter"
-            })
-            .unwrap();
-        assert_eq!(
-            clear_row.spans[0].content.trim(),
-            "Space I / Alt-I / unbound"
-        );
+        for (description, key) in [
+            ("Clear the include filter", "Space I / Alt-I"),
+            ("Clear the exclude filter", "unbound"),
+        ] {
+            let clear_row = lines
+                .iter()
+                .find(|line| line.spans.len() == 2 && line.spans[1].content == description)
+                .unwrap();
+            assert_eq!(clear_row.spans[0].content.trim(), key);
+        }
         for key in ["Space h", "Space s", "Space n", "Space c"] {
             assert!(
                 lines.iter().any(|line| line
