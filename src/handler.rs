@@ -190,6 +190,40 @@ pub fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
 
 pub fn handle_mouse_event(app: &mut App, event: MouseEvent) {
     let pos = Position::new(event.column, event.row);
+    // Capture the outer divider before normal clicks can start text selection.
+    let can_resize = app.input_mode == InputMode::Normal
+        && app.file_filter.draft.is_none()
+        && app.show_file_list;
+    if app.sidebar_resize_active {
+        if matches!(event.kind, MouseEventKind::Drag(MouseButton::Left)) && can_resize {
+            if let (Some(sidebar), Some(diff)) = (app.sidebar_area, app.diff_area) {
+                let total = u32::from(sidebar.width) + u32::from(diff.width);
+                let columns = u32::from(event.column.saturating_sub(sidebar.x)) + 1;
+                if let Some(percent) = (columns * 100 + total / 2).checked_div(total) {
+                    app.set_sidebar_width(percent.clamp(1, 99) as u16);
+                }
+            }
+            return;
+        }
+        if matches!(event.kind, MouseEventKind::Up(MouseButton::Left)) {
+            app.sidebar_resize_active = false;
+            return;
+        }
+        if !can_resize || matches!(event.kind, MouseEventKind::Down(_)) {
+            app.sidebar_resize_active = false;
+        }
+    }
+    if can_resize
+        && matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
+        && app
+            .sidebar_area
+            .is_some_and(|area| area.width > 0 && area.contains(pos) && pos.x == area.right() - 1)
+    {
+        app.sidebar_resize_active = true;
+        app.mouse_drag_active = false;
+        app.visual_selection = None;
+        return;
+    }
     match event.kind {
         MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
             let scroll_up = matches!(event.kind, MouseEventKind::ScrollUp);
@@ -1730,6 +1764,10 @@ fn handle_shared_normal_action(app: &mut App, action: Action) {
     }
 
     match action {
+        Action::NarrowSidebar => app.adjust_sidebar_width(-2),
+        Action::WidenSidebar => app.adjust_sidebar_width(2),
+        Action::ResetSidebarWidth => app.sidebar_width = app.default_sidebar_width,
+
         Action::Quit => {
             if app.dirty && app.session.has_comments() && !app.quit_warned {
                 app.set_sticky_warning("Unsaved changes. Press q again to quit.");

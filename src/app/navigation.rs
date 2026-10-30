@@ -1509,8 +1509,44 @@ impl App {
     /// line_annotations.len() in sync with the rendered Vec<Line>.
     pub fn sync_viewport_width(&mut self, new_width: usize) {
         if self.diff_state.viewport_width != new_width {
+            // Comment wrapping changes annotation counts. Retain the logical
+            // cursor/top row rather than their now-stale numeric indices.
+            let anchor = |index: usize| {
+                self.line_annotations.get(index).map(|line| {
+                    let occurrence = self.line_annotations[..index]
+                        .iter()
+                        .filter(|candidate| *candidate == line)
+                        .count();
+                    (line.clone(), occurrence)
+                })
+            };
+            let cursor = anchor(self.diff_state.cursor_line);
+            let top = anchor(self.diff_state.scroll_offset);
             self.diff_state.viewport_width = new_width;
+            // Reflow changes row counts, not hunk contents. Keep semantic
+            // coloring caches prepared before render instead of invalidating them.
+            let words = self.color_words.take();
+            let colored = std::mem::take(&mut self.colored_hunks);
             self.rebuild_annotations();
+            self.color_words = words;
+            self.colored_hunks = colored;
+            let restore = |anchor: Option<(AnnotatedLine, usize)>| {
+                anchor.and_then(|(line, occurrence)| {
+                    self.line_annotations
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, candidate)| **candidate == line)
+                        .take(occurrence + 1)
+                        .last()
+                        .map(|(index, _)| index)
+                })
+            };
+            if let Some(index) = restore(cursor) {
+                self.diff_state.cursor_line = index;
+            }
+            if let Some(index) = restore(top) {
+                self.diff_state.scroll_offset = index;
+            }
         }
     }
 

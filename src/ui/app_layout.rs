@@ -19,6 +19,7 @@ const COMMENT_NAVIGATOR_MIN_HEIGHT: u16 = 4;
 const COMMENT_NAVIGATOR_MAX_HEIGHT: u16 = 12;
 
 pub fn render(frame: &mut Frame, app: &mut App) {
+    app.sidebar_area = None;
     // Color what this frame shows before any line is built; see
     // `App::color_visible_hunks`.
     app.color_visible_hunks(frame.area().height as usize);
@@ -142,11 +143,12 @@ fn render_main_content(frame: &mut Frame, app: &mut App, area: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([
-                Constraint::Percentage(20), // File list
-                Constraint::Percentage(80), // Diff view
+                Constraint::Length(app.sidebar_width_columns(content_area.width)),
+                Constraint::Min(0),
             ])
             .split(content_area);
 
+        app.sidebar_area = Some(chunks[0]);
         let comment_items = app.build_comment_navigator_items();
         if !comment_items.is_empty()
             && chunks[0].height >= FILE_LIST_MIN_HEIGHT + COMMENT_NAVIGATOR_MIN_HEIGHT

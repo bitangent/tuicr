@@ -33,6 +33,9 @@ pub enum Action {
     // Panel focus
     ToggleFocus,
     ToggleFocusReverse,
+    NarrowSidebar,
+    WidenSidebar,
+    ResetSidebarWidth,
     SelectFile,
 
     // Review actions
@@ -231,9 +234,13 @@ fn q_action(q_quits: bool) -> Action {
 
 fn map_normal_mode_with_q_quits(key: KeyEvent, leader_key: char, q_quits: bool) -> Action {
     match (key.code, key.modifiers) {
-        (KeyCode::Char(key), KeyModifiers::NONE) if key == leader_key => {
+        (KeyCode::Char(key), KeyModifiers::NONE | KeyModifiers::SHIFT) if key == leader_key => {
             Action::PendingLeaderCommand
         }
+
+        (KeyCode::Char('<'), KeyModifiers::NONE | KeyModifiers::SHIFT) => Action::NarrowSidebar,
+        (KeyCode::Char('>'), KeyModifiers::NONE | KeyModifiers::SHIFT) => Action::WidenSidebar,
+        (KeyCode::Char('='), KeyModifiers::NONE | KeyModifiers::SHIFT) => Action::ResetSidebarWidth,
 
         // Cursor movement (vim-like: cursor moves, scroll follows when needed)
         (KeyCode::Char('j') | KeyCode::Down, KeyModifiers::NONE) => Action::CursorDown(1),

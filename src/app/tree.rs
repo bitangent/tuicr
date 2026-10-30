@@ -94,6 +94,39 @@ impl App {
         self.rebuild_annotations();
     }
 
+    /// Reserve useful space for both panes when possible, shrinking the minima
+    /// on tiny terminals. Keep the preference unchanged across terminal resizes.
+    pub fn sidebar_width_columns(&self, total: u16) -> u16 {
+        let min = 12.min(total / 3);
+        let max = total.saturating_sub(20.min(total.saturating_sub(min)));
+        let preferred = (u32::from(total) * u32::from(self.sidebar_width.clamp(1, 99)) + 50) / 100;
+        (preferred as u16).clamp(min, max)
+    }
+
+    /// Clamp explicit adjustments to the currently usable width, avoiding a
+    /// dead zone when reversing direction at a pane's minimum size. Rendering
+    /// alone never calls this, so terminal resizes retain the preference.
+    pub fn set_sidebar_width(&mut self, percent: u16) {
+        self.sidebar_width = percent.clamp(1, 99);
+        if self.show_file_list
+            && let (Some(sidebar), Some(diff)) = (self.sidebar_area, self.diff_area)
+        {
+            let total = u32::from(sidebar.width) + u32::from(diff.width);
+            let preferred = (total * u32::from(self.sidebar_width) + 50) / 100;
+            let columns = u32::from(self.sidebar_width_columns(total as u16));
+            if columns != preferred
+                && let Some(percent) = (columns * 100 + total / 2).checked_div(total)
+            {
+                self.sidebar_width = percent.clamp(1, 99) as u16;
+            }
+        }
+    }
+
+    pub fn adjust_sidebar_width(&mut self, delta: i16) {
+        self.set_sidebar_width(self.sidebar_width);
+        self.set_sidebar_width((self.sidebar_width as i16 + delta).clamp(1, 99) as u16);
+    }
+
     pub fn toggle_file_list(&mut self) {
         self.show_file_list = !self.show_file_list;
         if !self.show_file_list
