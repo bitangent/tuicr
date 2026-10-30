@@ -3,6 +3,7 @@
 Full reference. Press `?` inside tuicr for an in-app version of this list.
 
 `<leader>` defaults to `;`. Override it with `leader = ","` in `~/.config/tuicr/config.toml`.
+With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 
 ## Navigation
 
@@ -67,13 +68,18 @@ Press `?` to open help.
 | `O` | Collapse all directories |
 | `i` | Filter to files matching a regex (include) |
 | `e` | Filter out files matching a regex (exclude) |
-| `I` | Clear the include filter |
-| `E` | Clear the exclude filter |
+| `I` | Clear the include filter (configurable) |
+| `E` | Clear the exclude filter (configurable) |
 | `/` | Search file paths (substring) |
 | `n` / `N` | Next / previous file-path match |
 
 These keys are only active while the file tree is focused — in the diff, `i` still
 edits the comment at the cursor and `/` still searches the diff.
+
+The `I` / `E` defaults can be replaced or unbound with
+`keybindings.file_tree_clear_include` / `keybindings.file_tree_clear_exclude`.
+These actions remain tree-only. See [Configurable panel keys](CONFIG.md#configurable-panel-keys)
+for freeing `E` to toggle the sidebar instead.
 
 ### Filtering
 

@@ -8,7 +8,10 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
-use crate::input::{Action, panel_bindings::PanelBindings};
+use crate::input::{
+    Action,
+    panel_bindings::{PanelBindings, leader_display},
+};
 use crate::ui::styles;
 
 pub fn render_message_details(frame: &mut Frame, app: &mut App) {
@@ -62,18 +65,6 @@ pub fn render_message_details(frame: &mut Frame, app: &mut App) {
         )),
         inner,
     );
-}
-
-/// Printable stand-in for the configured leader key.
-///
-/// A whitespace leader (`leader = " "`) is a valid config value but renders as a
-/// blank in the help text, so substitute a visible glyph.
-fn leader_display(leader: char) -> char {
-    if leader.is_whitespace() {
-        '\u{2423}'
-    } else {
-        leader
-    }
 }
 
 fn comment_mode_row(key: &str, description: &str) -> Line<'static> {
@@ -191,6 +182,8 @@ fn help_lines(
     let focus_down = bindings.labels(Action::FocusDown, leader);
     let toggle_file_list = bindings.labels(Action::ToggleFileList, leader);
     let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
+    let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
+    let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let leader = leader_display(leader);
     let mut lines = vec![
         Line::from(Span::styled(
@@ -586,7 +579,7 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
-                "  I/E       ",
+                format!("  {clear_include} / {clear_exclude}  "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Clear the include/exclude filter"),
@@ -1104,15 +1097,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use unicode_width::UnicodeWidthChar;
 
     #[test]
-    fn should_show_all_six_default_bindings_with_the_configured_leader() {
+    fn should_show_default_and_fixed_bindings_with_the_configured_leader() {
         let text = help_lines(',', false, &PanelBindings::default())
             .iter()
             .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
             .collect::<String>();
-        for key in [",h", ",l", ",k", ",j", ",e", ",f"] {
+        for key in [",h", ",l", ",k", ",j", ",e", ",f", ",s", ",n", ",c"] {
             assert!(text.contains(key), "missing {key}");
         }
         assert!(!text.contains(";f"));
@@ -1127,6 +1119,8 @@ mod tests {
             focus_left = ["Alt-Left", "<leader>a"]
             toggle_file_list = []
             toggle_single_file_view = ["<leader>v"]
+            file_tree_clear_include = []
+            file_tree_clear_exclude = ["<leader>E", "Alt-E"]
         "#,
         )
         .unwrap();
@@ -1142,6 +1136,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         assert!(text.contains("Alt-Left / ,a"));
+        assert!(text.contains("unbound / ,E / Alt-E"));
         assert!(
             text.lines()
                 .any(|line| line.contains("unbound") && line.contains("Toggle file list"))
@@ -1166,33 +1161,59 @@ mod tests {
     }
 
     #[test]
-    fn should_substitute_a_visible_glyph_for_a_whitespace_leader() {
-        // given
-        let leader = ' ';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed, '\u{2423}');
+    fn should_show_space_leader_consistently_for_default_and_configured_help() {
+        for overrides in ["", "\n[keybindings]\nfocus_left=['<leader>a']"] {
+            let config: crate::config::AppConfig =
+                toml::from_str(&format!("leader=' '{overrides}")).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let text = help_lines(config.leader.unwrap(), false, &bindings)
+                .iter()
+                .flat_map(|line| line.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<String>();
+            let left = if overrides.is_empty() { "h" } else { "a" };
+            for suffix in [left, "l", "k", "j", "e", "f", "s", "n", "c"] {
+                assert!(
+                    text.contains(&format!("Space {suffix}")),
+                    "missing Space {suffix}"
+                );
+            }
+            assert!(!text.contains('\u{2423}'));
+        }
     }
 
     #[test]
-    fn should_leave_an_ordinary_leader_unchanged() {
-        // given
-        let leader = ',';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed, ',');
-    }
-
-    #[test]
-    fn should_keep_the_substitute_one_display_column_wide() {
-        // given
-        let leader = '\t';
-        // when
-        let displayed = leader_display(leader);
-        // then
-        assert_eq!(displayed.width(), Some(1));
+    fn should_align_space_leader_and_configured_filter_clear_aliases() {
+        let config: crate::config::AppConfig = toml::from_str(
+            r#"
+            leader = " "
+            [keybindings]
+            file_tree_clear_include = ["<leader>I", "Alt-I"]
+            file_tree_clear_exclude = []
+            "#,
+        )
+        .unwrap();
+        let bindings = PanelBindings::from_config(&config).unwrap();
+        let lines = help_lines(' ', false, &bindings);
+        assert_description_columns_align(&lines);
+        let clear_row = lines
+            .iter()
+            .find(|line| {
+                line.spans.len() == 2 && line.spans[1].content == "Clear the include/exclude filter"
+            })
+            .unwrap();
+        assert_eq!(
+            clear_row.spans[0].content.trim(),
+            "Space I / Alt-I / unbound"
+        );
+        for key in ["Space h", "Space s", "Space n", "Space c"] {
+            assert!(
+                lines.iter().any(|line| line
+                    .spans
+                    .first()
+                    .is_some_and(|span| span.content.trim() == key)),
+                "missing {key}"
+            );
+        }
     }
 
     fn assert_description_columns_align(lines: &[Line<'_>]) {

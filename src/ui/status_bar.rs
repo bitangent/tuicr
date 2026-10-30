@@ -10,6 +10,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, DiffSource, FocusedPanel, InputMode, Message, MessageType};
+use crate::input::Action;
 use crate::theme::Theme;
 use crate::ui::commit_row::CURSOR_GLYPH;
 use crate::ui::styles;
@@ -357,9 +358,15 @@ pub fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
             Cow::Borrowed("   \u{21b5} apply filter \u{00b7} esc cancel filter")
         } else {
             match app.input_mode {
-                InputMode::Normal if app.focused_panel == FocusedPanel::FileList => Cow::Borrowed(
-                    "   j/k move \u{00b7} \u{21b5} open \u{00b7} i/e filter \u{00b7} I/E clear \u{00b7} / search \u{00b7} r reviewed",
-                ),
+                InputMode::Normal if app.focused_panel == FocusedPanel::FileList => {
+                    Cow::Owned(format!(
+                        "   j/k move \u{00b7} \u{21b5} open \u{00b7} i/e filter \u{00b7} {}/{} clear \u{00b7} / search \u{00b7} r reviewed",
+                        app.panel_bindings
+                            .labels(Action::FileTreeClearInclude, app.leader_key),
+                        app.panel_bindings
+                            .labels(Action::FileTreeClearExclude, app.leader_key),
+                    ))
+                }
                 InputMode::Normal => Cow::Borrowed(
                     "   j/k scroll \u{00b7} {/} file \u{00b7} m/M comment \u{00b7} r file \u{00b7} R hunk \u{00b7} c comment \u{00b7} ? help",
                 ),
@@ -771,6 +778,25 @@ mod header_snapshot_tests {
         (0..buffer.area.width)
             .map(|x| buffer[(x, y)].symbol().to_string())
             .collect()
+    }
+
+    #[test]
+    fn should_show_configured_filter_clear_keys_in_tree_hint() {
+        let mut app = build_pr_app(pr_source(false, false));
+        app.focused_panel = crate::app::FocusedPanel::FileList;
+        let config = toml::from_str(
+            "[keybindings]\nfile_tree_clear_include=[]\nfile_tree_clear_exclude=['<leader>E']",
+        )
+        .unwrap();
+        app.panel_bindings = crate::input::PanelBindings::from_config(&config).unwrap();
+        let backend = TestBackend::new(180, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| super::render_status_bar(frame, &app, frame.area()))
+            .unwrap();
+        let line = row_text(terminal.backend().buffer(), 0);
+        assert!(line.contains("unbound/;E clear"), "{line}");
+        assert!(!line.contains("I/E clear"));
     }
 
     #[test]
