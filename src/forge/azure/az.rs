@@ -434,6 +434,11 @@ impl AzureDevOpsBackend {
 
 impl ForgeBackend for AzureDevOpsBackend {
     fn list_pull_requests(&self, query: PullRequestListQuery) -> Result<PagedPullRequests> {
+        if query.scope == PullRequestListScope::AuthoredByMe {
+            return Err(TuicrError::UnsupportedOperation(
+                "Created by me filtering is not supported for Azure DevOps".to_string(),
+            ));
+        }
         let page_size = query.page_size.max(1);
         let base = git_api_base(&query.repository);
         // Fetch one extra to detect a further page.
@@ -1296,6 +1301,23 @@ mod tests {
             .unwrap();
         // Best-effort: no checkout means base_sha stays as reported.
         assert_eq!(backend.resolve_diff_base_sha(&details), None);
+    }
+
+    #[test]
+    fn authored_scope_is_explicitly_unsupported_without_network_calls() {
+        let shared = SharedHttp::new(vec![]);
+        let backend =
+            AzureDevOpsBackend::with_transport(Some(azure_repo()), Box::new(shared.clone()));
+        let error = backend
+            .list_pull_requests(PullRequestListQuery::first_page_with_scope(
+                azure_repo(),
+                30,
+                PullRequestListScope::AuthoredByMe,
+            ))
+            .unwrap_err();
+        assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+        assert!(error.to_string().contains("Created by me"));
+        assert!(shared.0.calls.lock().unwrap().is_empty());
     }
 
     #[test]

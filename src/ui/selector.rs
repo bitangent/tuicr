@@ -178,7 +178,7 @@ fn pr_status_hint_span(app: &App, strip_bg: ratatui::style::Color) -> (Span<'sta
             (format!("{glyph} {prefix}loading more… "), base)
         }
         PrTabStatus::Error(msg) => (
-            format!("error \u{00b7} {msg} "),
+            format!("{}error · {msg} ", pr_scope_prefix(view.scope)),
             styles::error_inline_style(theme).bg(strip_bg),
         ),
         PrTabStatus::Ready => {
@@ -198,6 +198,7 @@ fn pr_scope_prefix(scope: PullRequestListScope) -> &'static str {
     match scope {
         PullRequestListScope::Open => "",
         PullRequestListScope::ReviewRequested => "requested · ",
+        PullRequestListScope::AuthoredByMe => "created by me · ",
     }
 }
 
@@ -555,10 +556,11 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
             }
             TargetTab::PullRequests => {
                 let scope_hint = match app.pr_tab.scope() {
-                    PullRequestListScope::Open => "r requested",
-                    PullRequestListScope::ReviewRequested => "r all PRs",
+                    PullRequestListScope::Open => "a created by me · r requested",
+                    PullRequestListScope::ReviewRequested => "a created by me · r all open",
+                    PullRequestListScope::AuthoredByMe => "a all open · r requested",
                 };
-                format!("   j/k navigate · ↵ open · {scope_hint} · / filter · esc back")
+                format!(" j/k · ↵ open · {scope_hint} · / local filter · esc")
             }
             TargetTab::Sessions => {
                 let empty_hint = if app.sessions_tab.show_empty() {
@@ -613,11 +615,12 @@ mod selector_render_snapshot_tests {
     //! real `render` against ratatui's `TestBackend` and assert on the
     //! resulting character grid (plus a few style checks for the active
     //! tab highlight).
+    use super::pr_status_hint_span;
     use crate::app::{App, DiffSource, InputMode};
     use crate::error::Result as TuicrResult;
     use crate::error::TuicrError;
     use crate::forge::selector::PullRequestsTab;
-    use crate::forge::traits::{ForgeRepository, PullRequestSummary};
+    use crate::forge::traits::{ForgeRepository, PullRequestListScope, PullRequestSummary};
     use crate::model::{DiffFile, DiffLine, FileStatus, ReviewSession, SessionDiffSource};
     use crate::review_store::SessionSummary;
     use crate::syntax::SyntaxHighlighter;
@@ -1010,7 +1013,7 @@ mod selector_render_snapshot_tests {
         let mut app = make_app(vec![commit(0)]);
         app.forge_repository = Some(repo());
         let mut tab = PullRequestsTab::new(Some(repo()));
-        tab.toggle_scope_and_start_reload();
+        tab.toggle_scope_and_start_reload(PullRequestListScope::ReviewRequested);
         tab.apply_initial_load(Ok((vec![pr(1, "alpha", "a")], false)));
         app.pr_tab = tab;
         app.target_tab = crate::app::TargetTab::PullRequests;
@@ -1024,9 +1027,65 @@ mod selector_render_snapshot_tests {
         );
         let footer = row_text(&buffer, buffer.area.height - 1);
         assert!(
-            footer.contains("r all PRs"),
+            footer.contains("r all open"),
             "expected footer toggle hint, got: {footer:?}"
         );
+    }
+
+    #[test]
+    fn should_show_authored_scope_and_both_toggle_hints() {
+        let mut app = make_app(vec![commit(0)]);
+        app.pr_tab = PullRequestsTab::new(Some(repo()));
+        app.pr_tab
+            .toggle_scope_and_start_reload(PullRequestListScope::AuthoredByMe);
+        app.pr_tab
+            .apply_initial_load(Ok((vec![pr(1, "alpha", "a")], false)));
+        app.target_tab = crate::app::TargetTab::PullRequests;
+
+        let buffer = draw(&mut app);
+        assert!(row_text(&buffer, TAB_STRIP_ROW).contains("created by me · 1 loaded"));
+        let footer = row_text(&buffer, buffer.area.height - 1);
+        assert!(footer.contains("a all open"), "{footer:?}");
+        assert!(footer.contains("r requested"), "{footer:?}");
+        assert!(footer.contains("/ local filter"), "{footer:?}");
+    }
+
+    #[test]
+    fn should_show_both_scope_keys_and_local_filter_at_80_columns() {
+        let mut app = make_app(vec![]);
+        app.pr_tab = PullRequestsTab::new(Some(repo()));
+        app.target_tab = crate::app::TargetTab::PullRequests;
+        for scope in [
+            PullRequestListScope::Open,
+            PullRequestListScope::ReviewRequested,
+            PullRequestListScope::AuthoredByMe,
+        ] {
+            app.pr_tab = PullRequestsTab::Loading {
+                repository: repo(),
+                scope,
+            };
+            let buffer = draw_at(&mut app, 80, 24);
+            let footer = row_text(&buffer, 23);
+            assert!(footer.contains("a "), "{footer:?}");
+            assert!(footer.contains("r "), "{footer:?}");
+            assert!(footer.contains("/ local filter"), "{footer:?}");
+            assert!(footer.contains("esc"), "{footer:?}");
+        }
+    }
+
+    #[test]
+    fn should_keep_authored_scope_visible_while_loading_or_failed() {
+        let mut app = make_app(vec![]);
+        app.pr_tab = PullRequestsTab::new(Some(repo()));
+        app.pr_tab
+            .toggle_scope_and_start_reload(PullRequestListScope::AuthoredByMe);
+        let (hint, _) = pr_status_hint_span(&app, ratatui::style::Color::Reset);
+        assert!(hint.content.contains("created by me · loading"));
+
+        app.pr_tab.apply_initial_load(Err("unsupported".into()));
+        let (hint, _) = pr_status_hint_span(&app, ratatui::style::Color::Reset);
+        assert!(hint.content.contains("created by me · error"));
+        assert!(hint.content.contains("unsupported"));
     }
 
     #[test]

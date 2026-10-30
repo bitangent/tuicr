@@ -209,20 +209,19 @@ pub enum PullRequestListScope {
     #[default]
     Open,
     ReviewRequested,
+    AuthoredByMe,
 }
 
 impl PullRequestListScope {
-    pub fn toggled(self) -> Self {
-        match self {
-            Self::Open => Self::ReviewRequested,
-            Self::ReviewRequested => Self::Open,
-        }
+    pub fn toggled(self, target: Self) -> Self {
+        if self == target { Self::Open } else { target }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Open => "all",
-            Self::ReviewRequested => "requested",
+            Self::Open => "All open",
+            Self::ReviewRequested => "Review requested",
+            Self::AuthoredByMe => "Created by me",
         }
     }
 }

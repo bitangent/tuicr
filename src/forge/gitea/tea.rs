@@ -738,6 +738,9 @@ where
         match query.scope {
             PullRequestListScope::Open => self.list_open_pull_requests(&query),
             PullRequestListScope::ReviewRequested => self.list_review_requested(&query),
+            PullRequestListScope::AuthoredByMe => Err(TuicrError::UnsupportedOperation(
+                "Created by me filtering is not supported for Gitea".to_string(),
+            )),
         }
     }
 
@@ -1921,6 +1924,21 @@ mod tests {
     }
 
     // ----- listing + pagination -----
+
+    #[test]
+    fn authored_scope_is_explicitly_unsupported_without_network_calls() {
+        let backend = GiteaTeaBackend::with_runner(Some(repo()), FakeTeaRunner::default());
+        let error = backend
+            .list_pull_requests(PullRequestListQuery::first_page_with_scope(
+                repo(),
+                30,
+                PullRequestListScope::AuthoredByMe,
+            ))
+            .unwrap_err();
+        assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+        assert!(error.to_string().contains("Created by me"));
+        assert!(backend.runner.calls.borrow().is_empty());
+    }
 
     #[test]
     fn should_list_open_pull_requests_with_paging_from_total_count() {

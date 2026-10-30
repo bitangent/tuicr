@@ -342,6 +342,11 @@ where
         ];
         match query.scope {
             PullRequestListScope::Open => params.push(("state", "OPEN".to_string())),
+            PullRequestListScope::AuthoredByMe => {
+                return Err(TuicrError::UnsupportedOperation(
+                    "Created by me filtering is not supported for Bitbucket".to_string(),
+                ));
+            }
             PullRequestListScope::ReviewRequested => {
                 // Cloud has no workspace-wide "review requested" endpoint; the
                 // repository-scoped `q` filter is the equivalent.
@@ -1061,6 +1066,21 @@ mod tests {
             .unwrap();
         // then
         assert!(paged.has_more);
+    }
+
+    #[test]
+    fn authored_scope_is_explicitly_unsupported_without_network_calls() {
+        let backend = backend(vec![]);
+        let error = backend
+            .list_pull_requests(PullRequestListQuery::first_page_with_scope(
+                repo(),
+                30,
+                PullRequestListScope::AuthoredByMe,
+            ))
+            .unwrap_err();
+        assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+        assert!(error.to_string().contains("Created by me"));
+        assert!(backend.runner.calls.borrow().is_empty());
     }
 
     #[test]

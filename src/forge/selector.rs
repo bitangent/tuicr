@@ -165,13 +165,14 @@ impl PullRequestsTab {
         None
     }
 
-    /// Toggle between all open PRs and PRs awaiting the current user's review,
+    /// Toggle a server-side scope against all open PRs,
     /// then transition to `Loading` so the caller can refetch page 1.
     pub fn toggle_scope_and_start_reload(
         &mut self,
+        target: PullRequestListScope,
     ) -> Option<(ForgeRepository, PullRequestListScope)> {
         let repository = self.repository()?.clone();
-        let next_scope = self.scope().toggled();
+        let next_scope = self.scope().toggled(target);
         *self = PullRequestsTab::Loading {
             repository: repository.clone(),
             scope: next_scope,
@@ -722,7 +723,7 @@ mod tests {
         tab.apply_initial_load(Ok((vec![pr(1, "a", "a", "h", "m")], true)));
         tab.set_filter("a".to_string());
         // when
-        let request = tab.toggle_scope_and_start_reload();
+        let request = tab.toggle_scope_and_start_reload(PullRequestListScope::ReviewRequested);
         // then
         assert_eq!(
             request.unwrap(),
@@ -736,7 +737,7 @@ mod tests {
     fn should_preserve_scope_for_load_more() {
         // given
         let mut tab = PullRequestsTab::new(Some(repo()));
-        tab.toggle_scope_and_start_reload();
+        tab.toggle_scope_and_start_reload(PullRequestListScope::ReviewRequested);
         tab.apply_initial_load(Ok((vec![pr(1, "a", "a", "h", "m")], true)));
         // when
         let request = tab.start_load_more();
@@ -745,5 +746,38 @@ mod tests {
             request.unwrap(),
             (repo(), PullRequestListScope::ReviewRequested, 1)
         );
+    }
+    #[test]
+    fn authored_and_requested_toggle_matrix_resets_loaded_state() {
+        use PullRequestListScope::{AuthoredByMe, Open, ReviewRequested};
+        for initial in [Open, AuthoredByMe, ReviewRequested] {
+            for target in [AuthoredByMe, ReviewRequested] {
+                let mut tab = PullRequestsTab::Loaded {
+                    repository: repo(),
+                    rows: vec![pr(1, "a", "a", "h", "m")],
+                    has_more: true,
+                    loading_more: true,
+                    filter: "a".into(),
+                    scope: initial,
+                    cursor: 1,
+                    scroll_offset: 1,
+                };
+                let expected = if initial == target { Open } else { target };
+                assert_eq!(
+                    tab.toggle_scope_and_start_reload(target),
+                    Some((repo(), expected))
+                );
+                let view = tab.view();
+                assert_eq!(view.scope, expected);
+                assert!(view.rows.is_empty());
+                assert_eq!(view.filter, "");
+                assert_eq!(view.cursor, 0);
+                assert_eq!(view.scroll_offset, 0);
+                assert!(!view.has_load_more);
+                assert!(matches!(view.status, PrTabStatus::Loading));
+                tab.apply_initial_load(Ok((vec![pr(2, "new", "me", "h", "m")], true)));
+                assert_eq!(tab.start_load_more(), Some((repo(), expected, 1)));
+            }
+        }
     }
 }

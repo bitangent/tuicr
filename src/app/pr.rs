@@ -852,8 +852,8 @@ impl App {
             .ensure_cursor_visible(self.pr_list_viewport_height);
     }
 
-    pub fn toggle_pr_review_requested_filter(&mut self) {
-        let Some((repo, scope)) = self.pr_tab.toggle_scope_and_start_reload() else {
+    pub fn toggle_pr_scope(&mut self, target: crate::forge::traits::PullRequestListScope) {
+        let Some((repo, scope)) = self.pr_tab.toggle_scope_and_start_reload(target) else {
             return;
         };
         self.pr_filter_draft = None;

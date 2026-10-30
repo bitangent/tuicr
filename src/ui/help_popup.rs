@@ -390,14 +390,14 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
                 "  r         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Toggle PRs requesting your review"),
+            Span::raw("Toggle requested / all open PRs (replaces created-by-me scope)"),
         ]),
         Line::from(vec![
             Span::styled(
                 "  a         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Show/hide empty saved reviews (Sessions tab)"),
+            Span::raw("PRs: created by me / all open (GitHub); Sessions: show/hide empty"),
         ]),
         Line::from(vec![
             Span::styled(
