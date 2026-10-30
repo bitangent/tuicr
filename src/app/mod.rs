@@ -285,7 +285,7 @@ pub enum GapCursorHit {
 }
 
 /// Describes what a rendered line represents - built once and used for O(1) cursor queries
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnnotatedLine {
     /// A rendered line of [`App::pr_info`] content
     PrInfoLine { line_idx: usize },
@@ -1359,6 +1359,12 @@ pub struct App {
     pub pending_confirm: Option<ConfirmAction>,
     pub supports_keyboard_enhancement: bool,
     pub show_file_list: bool,
+    /// Session-local preferred sidebar percentage; never persisted with a review.
+    pub sidebar_width: u16,
+    pub default_sidebar_width: u16,
+    /// Entire outer sidebar, including the comment navigator (set during render).
+    pub sidebar_area: Option<ratatui::layout::Rect>,
+    pub sidebar_resize_active: bool,
     pub compact_folders: bool,
     /// `true` when the session was opened via `--all-files`. Drives the
     /// `PRISTINE · N files` chip in the status bar and prevents that chip

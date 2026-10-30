@@ -56,6 +56,9 @@ impl<'de> Deserialize<'de> for IgnoreWhitespaceConfig {
 
 pub const DEFAULT_LEADER_KEY: char = ';';
 
+/// Preferred sidebar width as a percentage of the available content width.
+pub const DEFAULT_SIDEBAR_WIDTH: u16 = 20;
+
 /// Lines scrolled per vertical mouse wheel tick when `mouse_scroll_lines` is unset.
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 
@@ -165,6 +168,8 @@ pub struct AppConfig {
     pub backend: Option<String>,
     pub comment_types: Option<Vec<CommentTypeConfig>>,
     pub show_file_list: Option<bool>,
+    /// Preferred outer sidebar width as a percentage (`1..=99`), default 20.
+    pub sidebar_width: Option<u16>,
     /// Join single-child directory chains in the file tree. Defaults to false.
     pub compact_folders: Option<bool>,
     /// Whether pull-request CI checks are fetched and shown.
@@ -273,6 +278,7 @@ const KNOWN_KEYS: &[&str] = &[
     "backend",
     "comment_types",
     "show_file_list",
+    "sidebar_width",
     "compact_folders",
     "show_pr_checks",
     "show_pr_comments",
@@ -474,6 +480,20 @@ fn read_usize(table: &toml::Table, key: &str, warnings: &mut Vec<String>) -> Opt
     }
 }
 
+/// Read the preferred sidebar percentage without accepting zero/full-width panes.
+fn read_sidebar_width(table: &toml::Table, warnings: &mut Vec<String>) -> Option<u16> {
+    let width = read_usize(table, "sidebar_width", warnings)?;
+    if (1..=99).contains(&width) {
+        Some(width as u16)
+    } else {
+        warnings.push(
+            "Warning: Config key 'sidebar_width' must be between 1 and 99; ignoring value"
+                .to_string(),
+        );
+        None
+    }
+}
+
 /// Read `mouse_scroll_lines`, pushing a warning if it is outside
 /// `1..=MAX_MOUSE_SCROLL_LINES`.
 fn read_mouse_scroll_lines(table: &toml::Table, warnings: &mut Vec<String>) -> Option<usize> {
@@ -633,6 +653,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
             .get("comment_types")
             .and_then(|v| parse_comment_types(v, &mut warnings)),
         show_file_list: read_bool(table, "show_file_list", &mut warnings),
+        sidebar_width: read_sidebar_width(table, &mut warnings),
         compact_folders: read_bool(table, "compact_folders", &mut warnings),
         show_pr_checks: read_bool(table, "show_pr_checks", &mut warnings),
         show_pr_comments: read_bool(table, "show_pr_comments", &mut warnings),
@@ -1161,6 +1182,33 @@ mod tests {
         let outcome = parse_config("compact_folders = \"yes\"\n");
         assert_eq!(outcome.config.unwrap().compact_folders, None);
         assert_eq!(outcome.warnings.len(), 1);
+    }
+
+    #[test]
+    fn should_parse_sidebar_width_percentages() {
+        for value in [1, 20, 35, 99] {
+            let outcome = parse_config(&format!("sidebar_width = {value}\n"));
+            assert_eq!(outcome.config.unwrap().sidebar_width, Some(value));
+            assert!(outcome.warnings.is_empty());
+        }
+    }
+
+    #[test]
+    fn should_default_sidebar_width_to_twenty_percent() {
+        let outcome = parse_config("show_file_list = true\n");
+        assert_eq!(outcome.config.unwrap().sidebar_width, None);
+        assert_eq!(DEFAULT_SIDEBAR_WIDTH, 20);
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_warn_and_ignore_invalid_sidebar_width() {
+        for value in ["0", "100", "65536", "-1", "1.5", "true", "\"wide\""] {
+            let outcome = parse_config(&format!("sidebar_width = {value}\n"));
+            assert_eq!(outcome.config.unwrap().sidebar_width, None, "{value}");
+            assert_eq!(outcome.warnings.len(), 1, "{value}");
+            assert!(outcome.warnings[0].contains("sidebar_width"));
+        }
     }
 
     // show_file_list

@@ -132,9 +132,25 @@ considers files that pass the active filters.
 | `<leader>k` | Move focus up (comments to files, or diff/files to commit selector when visible) |
 | `<leader>j` | Move focus down (files to comments when visible, otherwise diff) |
 | `<leader>e` | Toggle file list visibility |
+| `<` / `>` | Narrow / widen the outer sidebar by 2 percentage points (no leader) |
+| `=` | Reset sidebar width to the configured preference (no leader) |
 | `<leader>s` | Toggle commit selector visibility (also `:set commits!`) |
 | `<leader>n` | Toggle relative line numbers (also `:set relativenumber!`) |
 | `Enter` | Select file (when file list is focused) |
+
+### Sidebar resizing
+
+In normal navigation, bare `<` and `>` resize the outer sidebar (the file tree
+and comment navigator together) against the entire diff. `=` resets to
+`sidebar_width` in config (default `20`, a percentage). You can also drag the
+existing vertical boundary between the sidebar and diff. This does not change
+the split between the old and new sides in side-by-side diff mode.
+
+Terminal size limits the actual width so tiny terminals remain safe. The width
+is remembered while hiding/showing the sidebar, changing views, and reloading;
+adjustments last only for the current process and never rewrite config or save
+into a review. These keys remain ordinary text in prompts, filters, searches,
+and comments. A configured leader key takes precedence over a resize binding.
 
 ## Comment navigator
 

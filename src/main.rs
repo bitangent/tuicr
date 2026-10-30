@@ -348,6 +348,8 @@ fn main() -> anyhow::Result<()> {
 
     // Apply config-driven defaults
     if let Some(ref cfg) = config_outcome.config {
+        app.default_sidebar_width = cfg.sidebar_width.unwrap_or(config::DEFAULT_SIDEBAR_WIDTH);
+        app.sidebar_width = app.default_sidebar_width;
         app.show_pr_checks = cfg.show_pr_checks.unwrap_or(false);
         app.show_pr_comments = cfg.show_pr_comments.unwrap_or(true);
         app.initial_comments_visibility = pr_comments_visibility;

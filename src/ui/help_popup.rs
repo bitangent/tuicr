@@ -251,6 +251,13 @@ pub fn render_help(frame: &mut Frame, app: &mut App) {
         ]),
         Line::from(vec![
             Span::styled(
+                "  < / > / = ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Sidebar: narrow/widen (2%)/reset; or drag its diff boundary"),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 format!("  {leader}s        "),
                 Style::default().add_modifier(Modifier::BOLD),
             ),
