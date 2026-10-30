@@ -1406,6 +1406,7 @@ pub struct App {
     pub up_released_since_arm: bool,
     pub cursor_line_highlight: bool,
     pub leader_key: char,
+    pub panel_bindings: crate::input::panel_bindings::PanelBindings,
     pub scroll_offset: usize,
     /// Lines scrolled per vertical mouse wheel tick (config
     /// `mouse_scroll_lines`, default 3).

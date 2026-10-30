@@ -14,6 +14,15 @@ use crate::text_edit::{
     delete_char_before, delete_word_before, next_char_boundary, prev_char_boundary,
 };
 
+/// Configured panel bindings only participate in review navigation. In
+/// particular, the file-tree draft is text input despite using Normal mode.
+pub fn map_panel_key(app: &App, key: KeyEvent, leader: bool) -> Option<Action> {
+    if app.input_mode != InputMode::Normal || app.file_tree_prompt_editing() {
+        return None;
+    }
+    app.panel_bindings.resolve(key, leader)
+}
+
 /// Columns scrolled per horizontal mouse wheel tick. Matches the default
 /// step for keyboard arrow scrolling so the two input methods feel
 /// interchangeable.
@@ -1767,6 +1776,12 @@ fn handle_shared_normal_action(app: &mut App, action: Action) {
     }
 
     match action {
+        Action::FocusLeft => app.focus_pane_left(),
+        Action::FocusRight => app.focus_pane_right(),
+        Action::FocusUp => app.focus_pane_up(),
+        Action::FocusDown => app.focus_pane_down(),
+        Action::ToggleFileList => app.toggle_file_list(),
+        Action::ToggleSingleFileView => app.toggle_single_file_view(),
         Action::NarrowSidebar => app.adjust_sidebar_width(-2),
         Action::WidenSidebar => app.adjust_sidebar_width(2),
         Action::ResetSidebarWidth => app.sidebar_width = app.default_sidebar_width,

@@ -124,6 +124,11 @@ considers files that pass the active filters.
 
 ## Panel focus
 
+The six focus/view bindings below are defaults. Override them with
+[`[keybindings]`](CONFIG.md#configurable-panel-keys); `?` shows the active bindings.
+Overrides apply only in normal review navigation, never in text-entry prompts or
+selectors. Other bindings in this table remain fixed.
+
 | Key | Action |
 |-----|--------|
 | `Tab` / `Shift-Tab` | Cycle focus forward / backward between file list, comment navigator, diff, and commit selector |
@@ -132,6 +137,7 @@ considers files that pass the active filters.
 | `<leader>k` | Move focus up (comments to files, or diff/files to commit selector when visible) |
 | `<leader>j` | Move focus down (files to comments when visible, otherwise diff) |
 | `<leader>e` | Toggle file list visibility |
+| `<leader>f` | Toggle current-file-only / continuous diff view (also `:focus` / `:f`) |
 | `<` / `>` | Narrow / widen the outer sidebar by 2 percentage points (no leader) |
 | `=` | Reset sidebar width to the configured preference (no leader) |
 | `<leader>s` | Toggle commit selector visibility (also `:set commits!`) |
@@ -358,7 +364,7 @@ crash, or by `tuicr review delete`/`clear` emptying a review another tuicr had o
 
 ## Inline commit selector
 
-Shown at the top of the diff when reviewing multiple commits. Focus it with `<leader>k` or `Tab`.
+Shown at the top of the diff when reviewing multiple commits. Focus it with `focus_up` (default `<leader>k`) or `Tab`.
 When opening a GitHub PR or GitLab MR you have reviewed before, tuicr may preselect only commits
 newer than your latest submitted review; commits already covered by that review are marked with
 `✓`. Use `Space` / `Enter` here to expand or adjust the range. Bitbucket does not record which

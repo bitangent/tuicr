@@ -600,6 +600,7 @@ impl App {
             up_released_since_arm: false,
             cursor_line_highlight: true,
             leader_key: crate::config::DEFAULT_LEADER_KEY,
+            panel_bindings: crate::input::panel_bindings::PanelBindings::default(),
             scroll_offset: 0,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             file_list_area: None,

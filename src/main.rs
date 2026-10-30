@@ -272,6 +272,10 @@ fn main() -> anyhow::Result<()> {
                 if let Some(leader) = cfg.leader {
                     app.leader_key = leader;
                 }
+                // The config loader warns and drops invalid overrides without
+                // discarding unrelated settings.
+                app.panel_bindings = tuicr::input::panel_bindings::PanelBindings::from_config(cfg)
+                    .unwrap_or_default();
                 app.comment_vim_enabled = cfg.comment_vim.unwrap_or(false);
                 app.q_quits = cfg.q_quits.unwrap_or(false);
                 app.editor_override = cfg.editor.clone();
@@ -659,60 +663,32 @@ fn main() -> anyhow::Result<()> {
                         // Otherwise fall through to normal handling
                     }
 
-                    // Handle pending leader command for panel focus, file list toggle, and review comments.
+                    // Resolve configurable actions before the remaining fixed
+                    // leader commands. Never dispatch a stale prefix in text input.
                     if pending_leader {
                         pending_leader = false;
-                        match key.code {
-                            crossterm::event::KeyCode::Char('e') => {
-                                app.toggle_file_list();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('h') => {
-                                app.focus_pane_left();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('l') => {
-                                app.focus_pane_right();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('k') => {
-                                if app.focused_panel == app::FocusedPanel::Comments {
-                                    app.focused_panel = app::FocusedPanel::FileList;
-                                } else if app.has_inline_commit_selector() {
-                                    app.focused_panel = app::FocusedPanel::CommitSelector;
-                                }
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('j') => {
-                                if app.focused_panel == app::FocusedPanel::FileList
-                                    && app.has_comment_navigator_items()
-                                {
-                                    app.focused_panel = app::FocusedPanel::Comments;
-                                } else {
-                                    app.focused_panel = app::FocusedPanel::Diff;
-                                }
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('c') => {
-                                app.enter_review_comment_mode();
-                                continue;
-                            }
-                            // `<leader>s` toggles the commit selector pane.
-                            crossterm::event::KeyCode::Char('s') => {
-                                app.toggle_commit_selector();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('f') => {
-                                app.toggle_single_file_view();
-                                continue;
-                            }
-                            crossterm::event::KeyCode::Char('n') => {
-                                app.relative_line_numbers = !app.relative_line_numbers;
-                                continue;
-                            }
-                            _ => {}
+                        if let Some(action) = handler::map_panel_key(&app, key, true) {
+                            dispatch_action(&mut app, action);
+                            continue;
                         }
-                        // Otherwise fall through to normal handling
+                        if app.input_mode == InputMode::Normal && !app.file_tree_prompt_editing() {
+                            match key.code {
+                                crossterm::event::KeyCode::Char('c') => {
+                                    app.enter_review_comment_mode();
+                                    continue;
+                                }
+                                crossterm::event::KeyCode::Char('s') => {
+                                    app.toggle_commit_selector();
+                                    continue;
+                                }
+                                crossterm::event::KeyCode::Char('n') => {
+                                    app.relative_line_numbers = !app.relative_line_numbers;
+                                    continue;
+                                }
+                                _ => {}
+                            }
+                        }
+                        // Otherwise fall through to normal handling.
                     }
 
                     // Vim modal editing: route comment-box keys to the edtui
@@ -728,9 +704,10 @@ fn main() -> anyhow::Result<()> {
                     // route through the filter-specific key map so typed
                     // characters update the filter buffer rather than driving
                     // commit-list navigation.
-                    let mut action = if app.input_mode == InputMode::CommitSelect
-                        && app.pr_filter_editing()
+                    let mut action = if let Some(action) = handler::map_panel_key(&app, key, false)
                     {
+                        action
+                    } else if app.input_mode == InputMode::CommitSelect && app.pr_filter_editing() {
                         map_target_filter_mode(key)
                     } else if app.input_mode == InputMode::Normal && app.file_tree_prompt_editing()
                     {
