@@ -70,8 +70,9 @@ The default token pattern is `\S+` (Unicode whitespace-delimited words).
 Custom patterns use **Rust `regex` syntax**, not Git's POSIX regex engine;
 this is not exact `git diff --color-words` parity. For example, Rust's POSIX
 classes such as `[[:alnum:]]` and `[[:space:]]` are ASCII classes, while
-`\w` and `\s` are Unicode-aware. Non-matching text is not emphasized;
-zero-width matches are skipped. Invalid patterns are rejected before launch.
+`\w` and `\s` are Unicode-aware. Non-matching text is not emphasized, except
+whitespace between changed tokens. Zero-width matches are skipped. Invalid
+patterns are rejected before launch.
 The second custom example compares individual non-ASCII-whitespace characters.
 
 Consecutive deleted and added lines are paired by position, not similarity.

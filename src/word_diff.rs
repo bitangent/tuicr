@@ -94,6 +94,20 @@ fn changed_lines(regex: &Regex, lines: &[DiffLine]) -> Vec<Vec<Range<usize>>> {
                     changed[new_index].extend(new_tokens[op.new_range()].iter().cloned());
                 }
             }
+            // Bridge whitespace between changed tokens, never unchanged words or punctuation.
+            for (index, text) in [(old_index, old), (new_index, new)] {
+                changed[index].dedup_by(|next, previous| {
+                    if text[previous.end..next.start]
+                        .chars()
+                        .all(char::is_whitespace)
+                    {
+                        previous.end = next.end;
+                        true
+                    } else {
+                        false
+                    }
+                });
+            }
         }
     }
     changed
@@ -145,6 +159,56 @@ mod tests {
         assert_eq!(
             pair(r"\S+", "😀 cat", "😀 dog"),
             vec![vec![5..8], vec![5..8]]
+        );
+    }
+    #[test]
+    fn changed_words_bridge_only_internal_whitespace() {
+        assert_eq!(
+            pair(r"\S+", "  old two words  ", "  new three tokens  "),
+            vec![vec![2..15], vec![2..18]]
+        );
+        assert_eq!(
+            pair(r"\S+", "😀 old\t \u{2003}name", "😀 new\t \u{2003}word"),
+            vec![vec![5..17], vec![5..17]]
+        );
+        assert_eq!(
+            pair(r"\S+", "old unchanged name", "new unchanged word"),
+            vec![vec![0..3, 14..18], vec![0..3, 14..18]]
+        );
+    }
+    #[test]
+    fn inserted_and_deleted_words_bridge_whitespace() {
+        assert_eq!(
+            pair(r"\S+", "keep end", "keep new words end"),
+            vec![vec![], vec![5..14]]
+        );
+        assert_eq!(
+            pair(r"\S+", "keep old words end", "keep end"),
+            vec![vec![5..14], vec![]]
+        );
+    }
+    #[test]
+    fn equal_whitespace_tokens_do_not_split_changed_phrases() {
+        assert_eq!(
+            pair(r"\S+|\s+", "old name", "new word"),
+            vec![vec![0..8], vec![0..8]]
+        );
+    }
+    #[test]
+    fn whitespace_bridging_preserves_custom_token_boundaries() {
+        for pattern in [r"\w+", r"[[:alnum:]_]+|[^[:space:]]"] {
+            assert_eq!(
+                pair(pattern, "old + name", "new + word"),
+                vec![vec![0..3, 6..10], vec![0..3, 6..10]]
+            );
+        }
+        assert_eq!(
+            pair(r"[^[:space:]]", "a b", "c d"),
+            vec![vec![0..3], vec![0..3]]
+        );
+        assert_eq!(
+            pair(r"[^[:space:]]", "a x b", "c x d"),
+            vec![vec![0..1, 4..5], vec![0..1, 4..5]]
         );
     }
     #[test]
