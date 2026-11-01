@@ -186,6 +186,8 @@ fn help_lines(
     let open_pr_in_browser = bindings.labels(Action::OpenPrInBrowser, leader);
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
+    let pr_authored_overridden = bindings.claims_pr_selector_key('a', leader);
+    let pr_requested_overridden = bindings.claims_pr_selector_key('r', leader);
     let leader = leader_display(leader);
     let mut lines = vec![
         Line::from(Span::styled(
@@ -485,6 +487,13 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
+                format!("  {open_pr_in_browser}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Open selected PR in default browser (Pull Requests tab)"),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 "  /         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
@@ -495,14 +504,22 @@ fn help_lines(
                 "  r         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("Toggle requested / all open PRs (replaces created-by-me scope)"),
+            Span::raw(if pr_requested_overridden {
+                "PR scope shortcut overridden by browser binding or leader"
+            } else {
+                "Toggle requested / all open PRs (replaces created-by-me scope)"
+            }),
         ]),
         Line::from(vec![
             Span::styled(
                 "  a         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
-            Span::raw("PRs: created by me / all open (GitHub); Sessions: show/hide empty"),
+            Span::raw(if pr_authored_overridden {
+                "Sessions: show/hide empty (PR scope shortcut overridden)"
+            } else {
+                "PRs: created by me / all open (GitHub); Sessions: show/hide empty"
+            }),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1137,14 +1154,39 @@ mod tests {
             let bindings = PanelBindings::from_config(&config).unwrap();
             let lines = help_lines(leader, false, &bindings);
             assert_description_columns_align(&lines);
+            for description in [
+                "Open current PR in default browser (PR mode)",
+                "Open selected PR in default browser (Pull Requests tab)",
+            ] {
+                let row = lines
+                    .iter()
+                    .find(|line| line.spans.len() == 2 && line.spans[1].content == description)
+                    .unwrap();
+                assert_eq!(row.spans[0].content.trim(), label);
+            }
+        }
+    }
+
+    #[test]
+    fn selector_browser_help_does_not_advertise_displaced_scope_keys() {
+        for (config, leader, key) in [
+            ("[keybindings]\nopen_pr_in_browser=['a']", ';', 'a'),
+            ("leader='a'", 'a', 'a'),
+            ("leader='r'", 'r', 'r'),
+        ] {
+            let bindings = PanelBindings::from_config(&toml::from_str(config).unwrap()).unwrap();
+            let lines = help_lines(leader, false, &bindings);
             let row = lines
                 .iter()
                 .find(|line| {
                     line.spans.len() == 2
-                        && line.spans[1].content == "Open current PR in default browser (PR mode)"
+                        && line.spans[0].content.trim() == key.to_string()
+                        && line.spans[1].content.contains("scope shortcut overridden")
                 })
                 .unwrap();
-            assert_eq!(row.spans[0].content.trim(), label);
+            if key == 'a' {
+                assert!(row.spans[1].content.contains("Sessions: show/hide empty"));
+            }
         }
     }
 

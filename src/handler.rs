@@ -14,9 +14,29 @@ use crate::text_edit::{
     delete_char_before, delete_word_before, next_char_boundary, prev_char_boundary,
 };
 
-/// Configured panel bindings only participate in review navigation. In
-/// particular, the file-tree draft is text input despite using Normal mode.
+/// Configured bindings participate in review navigation, plus the browser
+/// action in the PR selector. Draft/filter text input never uses this map.
 pub fn map_panel_key(app: &App, key: KeyEvent, leader: bool) -> Option<Action> {
+    if app.input_mode == InputMode::CommitSelect
+        && app.target_tab == TargetTab::PullRequests
+        && !app.pr_filter_editing()
+    {
+        if !leader
+            && key.code == crossterm::event::KeyCode::Char(app.leader_key)
+            && matches!(
+                key.modifiers,
+                crossterm::event::KeyModifiers::NONE | crossterm::event::KeyModifiers::SHIFT
+            )
+        {
+            return Some(Action::PendingLeaderCommand);
+        }
+        return match app.panel_bindings.resolve(key, leader) {
+            Some(Action::OpenPrInBrowser) => Some(Action::OpenPrInBrowser),
+            // Cancel a prefix without leaving the selector or aborting a PR load.
+            _ if leader && key.code == crossterm::event::KeyCode::Esc => Some(Action::None),
+            _ => None,
+        };
+    }
     if app.input_mode != InputMode::Normal || app.file_tree_prompt_editing() {
         return None;
     }
@@ -1467,6 +1487,7 @@ fn handle_local_target_action(app: &mut App, action: Action) {
 
 fn handle_pr_target_action(app: &mut App, action: Action) {
     match action {
+        Action::OpenPrInBrowser => app.open_pr_in_browser(),
         Action::CommitSelectUp => app.pr_tab_cursor_up(),
         Action::CommitSelectDown => app.pr_tab_cursor_down(),
         Action::ConfirmCommitSelect => {

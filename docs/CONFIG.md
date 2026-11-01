@@ -160,7 +160,7 @@ With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 | `toggle_file_list` | `["<leader>e"]` | Show or hide the file tree/sidebar. |
 | `toggle_single_file_view` | `["<leader>f"]` | Switch between current-file-only and continuous diff view (also `:focus` / `:f`). |
 | `toggle_diff_view` | `["<leader>d"]` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode). |
-| `open_pr_in_browser` | `["<leader>o"]` | Open the currently reviewed PR/MR/change URL in the default browser (PR mode only). |
+| `open_pr_in_browser` | `["<leader>o"]` | Open the reviewed PR/MR/change, or the PR under the cursor in the Pull Requests selector tab, in the default browser. |
 | `file_tree_clear_include` | `["I"]` | Clear the include filter (file tree only). |
 | `file_tree_clear_exclude` | `["E"]` | Clear the exclude filter (file tree only). |
 
@@ -194,11 +194,16 @@ character for other shifted characters (e.g. `!`, not `Shift-1`).
 Terminal-equivalent chords are checked for collisions; some terminals reserve or
 do not distinguish particular combinations, so choose bindings your terminal sends.
 
-These bindings apply only during normal review navigation. Focus/view and browser actions work
-across pane focus; filter-clear actions work only while the file tree is focused. They do
-not intercept command/search/comment entry, selectors, the theme picker, or the
-file-tree include/exclude/search prompts. The `?` help displays the effective
-bindings, including aliases and unbound actions.
+These bindings apply during normal review navigation. Focus/view and browser actions work
+across pane focus; filter-clear actions work only while the file tree is focused.
+`open_pr_in_browser` also works in the target selector's Pull Requests tab, using
+the PR under the cursor (no selection means no action). There, an explicit browser
+binding or the leader prefix takes priority over an existing selector key; for
+example, binding the browser action to `a` replaces Created by me in that tab.
+Other selectors and tabs retain their existing keys. No configurable action
+intercepts command/search/comment entry, PR-filter entry, the theme picker, or
+file-tree include/exclude/search prompts. Help and the PR-selector footer display
+the effective browser binding, including aliases and unbound actions.
 
 Unknown actions, malformed values, duplicate bindings, unreachable keys, or
 conflicts with fixed navigation/global keys produce a startup warning and reset

@@ -557,6 +557,9 @@ fn main() -> anyhow::Result<()> {
                             .modifiers
                             .contains(crossterm::event::KeyModifiers::CONTROL)
                     {
+                        if app.input_mode == InputMode::CommitSelect {
+                            pending_leader = false;
+                        }
                         // If in comment mode, cancel the comment first
                         if app.input_mode == InputMode::Comment {
                             app.exit_comment_mode();
@@ -585,6 +588,9 @@ fn main() -> anyhow::Result<()> {
                     // Checked before the pending-prefix and vim-editor routing
                     // so they never reach a text buffer.
                     if handler::handle_global_key(&mut app, key) {
+                        if app.input_mode == InputMode::CommitSelect {
+                            pending_leader = false;
+                        }
                         continue;
                     }
 
