@@ -15,7 +15,7 @@ Local themes live in the sibling `themes/` directory:
 | Windows       | `%APPDATA%\tuicr\themes\`                                             |
 
 Unknown keys are ignored with a startup warning, except invalid `[keybindings]`
-settings reset all nine configurable bindings to defaults (see below).
+settings reset all ten configurable bindings to defaults (see below).
 
 ## Full example
 
@@ -77,6 +77,7 @@ focus_down = ["<leader>j"]
 toggle_file_list = ["<leader>e"]
 toggle_single_file_view = ["<leader>f"]
 toggle_diff_view = ["<leader>d"]
+open_pr_in_browser = ["<leader>o"]
 file_tree_clear_include = ["I"]
 file_tree_clear_exclude = ["E"]
 
@@ -121,7 +122,7 @@ session_header = true
 | `mouse`                    | `true`       | Wheel scrolling, clicks, and drag-to-select.                                                                                                               |
 | `mouse_scroll_lines`       | `3`          | Lines scrolled per mouse wheel tick in the diff, file list, comment list, help, and summary views; the commit list moves its cursor this many rows. Must be between 1 and 100; other values are ignored with a startup warning. |
 | `leader`                   | `;`          | Single-character prefix for panel focus, sidebar toggles, and review-comment shortcuts. Space is supported; multi-character values and control characters (such as Tab or newline) are ignored with a startup warning. |
-| `keybindings` | (default bindings below) | Override nine panel-focus, view-toggle, and filter-clear actions; see [Configurable panel keys](#configurable-panel-keys). |
+| `keybindings` | (default bindings below) | Override ten panel-focus, view-toggle, browser, and filter-clear actions; see [Configurable panel keys](#configurable-panel-keys). |
 | `editor`                   | `$EDITOR`    | Editor command for the `e` / `:edit` handoff, split with shell-like quoting rules (e.g. `"code -w"`). Falls back to `$EDITOR`, then `vi`. |
 | `comment_vim`              | `false`      | Vim modal editing in the comment box; toggle at runtime with `:vim`. When off, default emacs/readline bindings.                                            |
 | `q_quits`                  | `false`      | Restore bare `q` as a quit key in review modes. `:q`, `ZZ`, and `ZQ` work regardless of this setting.                                                     |
@@ -148,7 +149,7 @@ With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 
 ## Configurable panel keys
 
-`[keybindings]` configures these nine actions at startup:
+`[keybindings]` configures these ten actions at startup:
 
 | Action | Default | Behavior |
 | --- | --- | --- |
@@ -159,6 +160,7 @@ With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 | `toggle_file_list` | `["<leader>e"]` | Show or hide the file tree/sidebar. |
 | `toggle_single_file_view` | `["<leader>f"]` | Switch between current-file-only and continuous diff view (also `:focus` / `:f`). |
 | `toggle_diff_view` | `["<leader>d"]` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode). |
+| `open_pr_in_browser` | `["<leader>o"]` | Open the currently reviewed PR/MR/change URL in the default browser (PR mode only). |
 | `file_tree_clear_include` | `["I"]` | Clear the include filter (file tree only). |
 | `file_tree_clear_exclude` | `["E"]` | Clear the exclude filter (file tree only). |
 
@@ -177,6 +179,7 @@ focus_down = ["Alt-Down"]
 toggle_file_list = ["<leader>t"]
 toggle_single_file_view = [] # :focus / :f still work
 toggle_diff_view = ["<leader>v", "F12"] # replace default; [] leaves :diff available
+open_pr_in_browser = ["<leader>b"] # replace default; [] disables browser shortcut
 ```
 
 Each string is one key/chord, or `<leader>` followed by one key/chord. Use a
@@ -191,7 +194,7 @@ character for other shifted characters (e.g. `!`, not `Shift-1`).
 Terminal-equivalent chords are checked for collisions; some terminals reserve or
 do not distinguish particular combinations, so choose bindings your terminal sends.
 
-These bindings apply only during normal review navigation. Focus/view actions work
+These bindings apply only during normal review navigation. Focus/view and browser actions work
 across pane focus; filter-clear actions work only while the file tree is focused. They do
 not intercept command/search/comment entry, selectors, the theme picker, or the
 file-tree include/exclude/search prompts. The `?` help displays the effective
@@ -199,9 +202,10 @@ bindings, including aliases and unbound actions.
 
 Unknown actions, malformed values, duplicate bindings, unreachable keys, or
 conflicts with fixed navigation/global keys produce a startup warning and reset
-**all nine actions** to their defaults; unrelated config settings remain in effect.
-The new `<leader>d` default also conflicts with any existing override using that
-binding; remap or unbind `toggle_diff_view` to keep that override.
+**all ten actions** to their defaults; unrelated config settings remain in effect.
+The `<leader>d` and `<leader>o` defaults conflict with existing overrides using
+those bindings; remap or unbind `toggle_diff_view` or `open_pr_in_browser` to keep
+such overrides.
 Validation checks the final map, so swapping two actions' bindings is allowed.
 For example, set `file_tree_clear_exclude = ["<leader>E"]` (or `[]`) and
 `toggle_file_list = ["E"]` to free `E` for toggling the sidebar. Leaving the

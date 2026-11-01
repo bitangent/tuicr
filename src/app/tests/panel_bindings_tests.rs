@@ -282,3 +282,79 @@ fn diff_toggle_shortcut_matches_command_and_pristine_guard() {
         }
     }
 }
+
+#[test]
+fn open_pr_browser_dispatches_from_every_review_pane_but_not_other_modes() {
+    use crate::handler::map_panel_key;
+    use crate::input::PanelBindings;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let config =
+        toml::from_str("leader=' '\n[keybindings]\nopen_pr_in_browser=['F12', '<leader>b']")
+            .unwrap();
+    let mut app = app_with(vec![file("one.rs", 10)]);
+    app.panel_bindings = PanelBindings::from_config(&config).unwrap();
+    app.leader_key = ' ';
+    let keys = [
+        (KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE), false),
+        (KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE), true),
+    ];
+    let handlers: [fn(&mut App, Action); 4] = [
+        handle_diff_action,
+        handle_file_list_action,
+        handle_commit_selector_action,
+        handle_comment_navigator_action,
+    ];
+    for (handler, panel) in handlers.into_iter().zip([
+        FocusedPanel::Diff,
+        FocusedPanel::FileList,
+        FocusedPanel::CommitSelector,
+        FocusedPanel::Comments,
+    ]) {
+        app.focused_panel = panel;
+        for (key, leader) in keys {
+            let action = map_panel_key(&app, key, leader).unwrap();
+            assert_eq!(action, Action::OpenPrInBrowser);
+            handler(&mut app, action);
+            assert!(
+                app.message
+                    .as_ref()
+                    .unwrap()
+                    .content
+                    .contains("only applies in PR mode")
+            );
+        }
+    }
+    for mode in [
+        InputMode::Comment,
+        InputMode::Command,
+        InputMode::Search,
+        InputMode::Help,
+        InputMode::MessageDetails,
+        InputMode::Summary,
+        InputMode::Confirm,
+        InputMode::CommitSelect,
+        InputMode::VisualSelect,
+        InputMode::SubmitResolver,
+        InputMode::SubmitConfirm,
+        InputMode::SubmitActionPicker,
+        InputMode::ThemePicker,
+    ] {
+        app.input_mode = mode;
+        for (key, leader) in keys {
+            assert_eq!(map_panel_key(&app, key, leader), None, "{mode:?}");
+        }
+    }
+    app.input_mode = InputMode::Normal;
+    app.focused_panel = FocusedPanel::FileList;
+    for prompt in [
+        FileTreePrompt::Include,
+        FileTreePrompt::Exclude,
+        FileTreePrompt::Search,
+    ] {
+        app.begin_file_tree_prompt(prompt);
+        for (key, leader) in keys {
+            assert_eq!(map_panel_key(&app, key, leader), None);
+        }
+        app.cancel_file_tree_prompt();
+    }
+}
