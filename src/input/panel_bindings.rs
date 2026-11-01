@@ -1,4 +1,4 @@
-//! Configurable normal-review actions, not a general mode keymap.
+//! Configurable review actions (plus browser dispatch in the PR selector), not a general mode keymap.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::keybindings::{Action, map_file_tree_mode, map_global_key, map_key_to_action};
@@ -100,7 +100,7 @@ impl PanelBindings {
         Ok(result)
     }
 
-    /// Call only in normal review navigation, never in a text-input substate.
+    /// Call only in navigation; the caller scopes actions by mode and excludes text input.
     pub fn resolve(&self, key: KeyEvent, leader: bool) -> Option<Action> {
         let (code, modifiers) = normalize(key.code, key.modifiers);
         self.0
@@ -113,6 +113,13 @@ impl PanelBindings {
                 })
             })
             .map(|(action, _)| action.clone())
+    }
+
+    /// Whether a plain PR-selector key is displaced by the browser shortcut or leader.
+    pub(crate) fn claims_pr_selector_key(&self, key: char, leader: char) -> bool {
+        key == leader
+            || self.resolve(KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE), false)
+                == Some(Action::OpenPrInBrowser)
     }
 
     pub fn labels(&self, action: Action, leader: char) -> String {

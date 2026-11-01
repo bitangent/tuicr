@@ -322,8 +322,9 @@ to toggle unified / side-by-side diff view. The shortcut is configurable as
 `toggle_diff_view` in [config](docs/CONFIG.md#configurable-panel-keys).
 
 Use `<leader>o` (default `;o`; Space then o with a Space leader) to open the
-currently reviewed PR in your default browser. Rebind or unbind `open_pr_in_browser`
-in [config](docs/CONFIG.md#configurable-panel-keys).
+currently reviewed PR in your default browser, or the PR under your cursor in the
+Pull Requests selector tab without opening its review. Rebind or unbind the same
+`open_pr_in_browser` action in [config](docs/CONFIG.md#configurable-panel-keys).
 
 A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 
@@ -344,7 +345,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `r` | Toggle file reviewed |
 | `R` | Toggle hunk reviewed |
 | `e` | Open focused file in `$EDITOR` (in PR review: the PR's revision, as a read-only copy when the checkout differs) |
-| `<leader>o` | Open current PR in default browser (PR mode) |
+| `<leader>o` | Open reviewed PR or selected PR-list row in default browser |
 | `y` | Copy review to clipboard |
 | `:edit` | Open focused file in `$EDITOR` |
 | `:submit` | Push review to GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, or Gerrit |

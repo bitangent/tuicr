@@ -9,6 +9,7 @@ use ratatui::{
 use crate::app::{App, TargetTab, sessions_tab};
 use crate::forge::selector::{PrTabStatus, PrTabView};
 use crate::forge::traits::PullRequestListScope;
+use crate::input::Action;
 use crate::ui::commit_row::{
     CURSOR_GLYPH, CommitRowSpec, format_relative_short, render_commit_row,
 };
@@ -546,21 +547,46 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let mode_span = Span::styled(" SELECT ", styles::mode_style(theme));
 
-    let hints = if app.message.is_some() {
-        String::new()
-    } else {
-        match app.target_tab {
+    let hints =
+        if app.message.is_some() {
+            String::new()
+        } else {
+            match app.target_tab {
             TargetTab::Local => {
                 "   j/k navigate \u{00b7} space range \u{00b7} \u{21b5} confirm \u{00b7} :q quit"
                     .to_string()
             }
             TargetTab::PullRequests => {
-                let scope_hint = match app.pr_tab.scope() {
-                    PullRequestListScope::Open => "a created by me · r requested",
-                    PullRequestListScope::ReviewRequested => "a created by me · r all open",
-                    PullRequestListScope::AuthoredByMe => "a all open · r requested",
-                };
-                format!(" j/k · ↵ open · {scope_hint} · / local filter · esc")
+                let browser = app
+                    .panel_bindings
+                    .labels(Action::OpenPrInBrowser, app.leader_key);
+                let scope = app.pr_tab.scope();
+                let mut scope_hint = String::new();
+                for (key, label) in [
+                    (
+                        'a',
+                        if scope == PullRequestListScope::AuthoredByMe {
+                            "all open"
+                        } else {
+                            "mine"
+                        },
+                    ),
+                    (
+                        'r',
+                        if scope == PullRequestListScope::ReviewRequested {
+                            "all open"
+                        } else {
+                            "requested"
+                        },
+                    ),
+                ] {
+                    // An explicit browser remap (or the leader itself) wins
+                    // over a scope key. Do not advertise the displaced action.
+                    if !app.panel_bindings.claims_pr_selector_key(key, app.leader_key) {
+                        scope_hint.push_str(&format!(" · {key} {label}"));
+                    }
+                }
+                format!(" j/k · ↵ · {browser} browser{scope_hint} · / local filter · esc")
             }
             TargetTab::Sessions => {
                 let empty_hint = if app.sessions_tab.show_empty() {
@@ -571,7 +597,7 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
                 format!("   j/k navigate · ↵ resume · dd delete · {empty_hint} · esc back")
             }
         }
-    };
+        };
     let hints_span = Span::styled(hints, Style::default().fg(theme.fg_secondary));
 
     let selected_count = match app.commit_selection_range {
@@ -793,6 +819,48 @@ mod selector_render_snapshot_tests {
     }
 
     const TAB_STRIP_ROW: u16 = 0;
+
+    #[test]
+    fn selector_browser_hint_uses_effective_binding_and_custom_leader() {
+        use crate::app::TargetTab;
+        use crate::input::PanelBindings;
+        for (config, leader, label) in [
+            ("", ';', ";o"),
+            ("leader=' '", ' ', "Space o"),
+            (
+                "[keybindings]\nopen_pr_in_browser=['<leader>b', 'F12']",
+                ',',
+                ",b / F12",
+            ),
+            ("[keybindings]\nopen_pr_in_browser=[]", ';', "unbound"),
+        ] {
+            let mut app = make_app(Vec::new());
+            app.target_tab = TargetTab::PullRequests;
+            app.leader_key = leader;
+            app.panel_bindings =
+                PanelBindings::from_config(&toml::from_str(config).unwrap()).unwrap();
+            let buffer = draw(&mut app);
+            assert!(row_text(&buffer, 23).contains(&format!("{label} browser")));
+        }
+    }
+
+    #[test]
+    fn selector_browser_hint_does_not_advertise_overridden_scope_keys() {
+        use crate::input::PanelBindings;
+        for (config, leader, hidden) in [
+            ("[keybindings]\nopen_pr_in_browser=['a']", ';', "a mine"),
+            ("leader='a'", 'a', "a mine"),
+            ("leader='r'", 'r', "r requested"),
+        ] {
+            let mut app = make_app(Vec::new());
+            app.target_tab = crate::app::TargetTab::PullRequests;
+            app.leader_key = leader;
+            app.panel_bindings =
+                PanelBindings::from_config(&toml::from_str(config).unwrap()).unwrap();
+            let buffer = draw(&mut app);
+            assert!(!row_text(&buffer, 23).contains(hidden));
+        }
+    }
 
     #[test]
     fn should_resize_branch_columns_on_fullscreen_and_inline_selectors() {

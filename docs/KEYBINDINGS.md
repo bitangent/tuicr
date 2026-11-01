@@ -161,14 +161,18 @@ remains available. Bare `d` still starts the delete prefix.
 `<leader>o` (default `;o`) opens the **currently reviewed** PR/MR/change URL in
 this machine's default browser from any normal review pane. With `leader = " "`,
 press Space then o. Rebind or disable it with `keybindings.open_pr_in_browser`.
-It does not open a highlighted row in the target selector or run during text entry.
+In the target selector's **Pull Requests** tab, the same binding opens the PR under
+the cursor, including after filtering, without entering its review. Empty/loading
+lists, the load-more row, and the Local/Sessions tabs do nothing; an old reviewed
+PR is never used as a fallback. It does not run during filter or other text entry.
 Local reviews and missing or non-HTTP(S) URLs show a warning instead.
 
 The launch runs in the background without handing the terminal to a browser.
 “PR URL sent to default browser” confirms dispatch, not that the page loaded;
 on Linux, launcher failures after dispatch may not be reported. If no browser
-appears (for example on a remote/headless machine), use `:copy-url` and paste the
-URL into your local browser. Detected launch errors also suggest this fallback.
+appears (for example on a remote/headless machine), open the PR for review first,
+then use `:copy-url` and paste its URL into your local browser. Detected launch
+errors appear in the message bar, including while staying in the selector.
 
 ### Sidebar resizing
 
@@ -361,12 +365,21 @@ comments that the author publishes from Gerrit's Reply UI.
 | `j` / `k` | Move selection |
 | `Space` | Toggle local commit selection |
 | `Enter` | Confirm local commit range, open PR, load more PRs, or resume a saved review |
+| `<leader>o` | Open the PR under the cursor in the default browser (Pull Requests tab) |
 | `/` | Filter currently loaded PR rows locally within the active scope |
 | `r` | In Pull Requests tab, toggle all open PRs / PRs requesting your review |
 | `a` | In Pull Requests tab, toggle all open PRs / PRs created by you (GitHub only); in Sessions tab, show or hide saved reviews holding no progress |
 | `dd` | In Sessions tab, delete the saved review under the cursor (asks to confirm) |
 | `Esc` | Return to the diff |
 | `:q` | Quit |
+
+The browser shortcut uses the same `keybindings.open_pr_in_browser` configuration
+as normal review. Its effective binding appears in the selector footer and help.
+An explicit remap takes priority over a PR-tab key (for example, `['a']` replaces
+Created by me there), as does the configured leader prefix. Other tabs keep their
+existing keys, including Local's Space selection with a Space leader. `Esc`
+cancels a pending leader prefix without leaving the selector; an unrecognized
+suffix falls through to normal navigation.
 
 The Pull Requests tab starts with all open PRs. `a` selects **Created by me** and
 `r` selects **Review requested**; these scopes are mutually exclusive. Press the

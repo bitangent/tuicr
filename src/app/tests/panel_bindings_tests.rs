@@ -358,3 +358,125 @@ fn open_pr_browser_dispatches_from_every_review_pane_but_not_other_modes() {
         app.cancel_file_tree_prompt();
     }
 }
+
+#[test]
+fn selector_browser_uses_default_custom_direct_and_unbound_bindings() {
+    use crate::handler::map_panel_key;
+    use crate::input::PanelBindings;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    for (config, leader, suffix, enabled) in [
+        ("", ';', 'o', true),
+        ("leader=' '", ' ', 'o', true),
+        (
+            "leader=','\n[keybindings]\nopen_pr_in_browser=['<leader>b', 'F12', 'x']",
+            ',',
+            'b',
+            true,
+        ),
+        ("[keybindings]\nopen_pr_in_browser=[]", ';', 'o', false),
+    ] {
+        let mut app = app_with(Vec::new());
+        app.input_mode = InputMode::CommitSelect;
+        app.target_tab = TargetTab::PullRequests;
+        app.leader_key = leader;
+        app.panel_bindings = PanelBindings::from_config(&toml::from_str(config).unwrap()).unwrap();
+        let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+        assert_eq!(
+            map_panel_key(&app, key(KeyCode::Char(leader)), false),
+            Some(Action::PendingLeaderCommand)
+        );
+        assert_eq!(
+            map_panel_key(&app, key(KeyCode::Char(suffix)), true),
+            enabled.then_some(Action::OpenPrInBrowser)
+        );
+        if suffix == 'b' {
+            assert_eq!(map_panel_key(&app, key(KeyCode::Char('o')), true), None);
+            for code in [KeyCode::F(12), KeyCode::Char('x')] {
+                assert_eq!(
+                    map_panel_key(&app, key(code), false),
+                    Some(Action::OpenPrInBrowser)
+                );
+            }
+        }
+        // Other configurable actions must not leak into the selector.
+        assert_eq!(map_panel_key(&app, key(KeyCode::Char('h')), true), None);
+        for tab in [TargetTab::Local, TargetTab::Sessions] {
+            app.target_tab = tab;
+            assert_eq!(map_panel_key(&app, key(KeyCode::Char(leader)), false), None);
+            assert_eq!(map_panel_key(&app, key(KeyCode::Char(suffix)), true), None);
+        }
+    }
+}
+
+#[test]
+fn selector_browser_preserves_filter_text_and_pending_prefix_cancellation() {
+    use crate::handler::{handle_commit_select_action, map_panel_key};
+    use crate::input::{PanelBindings, map_key_to_action, map_target_filter_mode};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = app_with(Vec::new());
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.panel_bindings = PanelBindings::from_config(
+        &toml::from_str("[keybindings]\nopen_pr_in_browser=['x', '<leader>b']").unwrap(),
+    )
+    .unwrap();
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    // Esc cancels only the prefix; a tab/motion falls through to navigation.
+    assert_eq!(
+        map_panel_key(&app, key(KeyCode::Esc), true),
+        Some(Action::None)
+    );
+    for (code, action) in [
+        (KeyCode::Tab, Action::TargetSelectorTabNext),
+        (KeyCode::Char('j'), Action::CommitSelectDown),
+    ] {
+        assert_eq!(map_panel_key(&app, key(code), true), None);
+        assert_eq!(
+            map_key_to_action(key(code), app.input_mode, app.leader_key),
+            action
+        );
+    }
+    app.pr_filter_draft = Some(String::new());
+    for ch in [';', 'b', 'x'] {
+        assert_eq!(map_panel_key(&app, key(KeyCode::Char(ch)), false), None);
+        assert_eq!(map_panel_key(&app, key(KeyCode::Char(ch)), true), None);
+        handle_commit_select_action(&mut app, map_target_filter_mode(key(KeyCode::Char(ch))));
+    }
+    assert_eq!(app.pr_filter_draft.as_deref(), Some(";bx"));
+    assert!(app.browser_open_rx.is_none());
+}
+
+#[test]
+fn selector_browser_explicit_binding_wins_only_on_pr_tab() {
+    use crate::handler::map_panel_key;
+    use crate::input::{PanelBindings, map_key_to_action};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = app_with(Vec::new());
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.panel_bindings = PanelBindings::from_config(
+        &toml::from_str("[keybindings]\nopen_pr_in_browser=['a']").unwrap(),
+    )
+    .unwrap();
+    let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
+    assert_eq!(
+        map_panel_key(&app, key, false),
+        Some(Action::OpenPrInBrowser)
+    );
+    app.target_tab = TargetTab::Sessions;
+    assert_eq!(map_panel_key(&app, key, false), None);
+    assert_eq!(
+        map_key_to_action(key, app.input_mode, app.leader_key),
+        Action::SessionsTabToggleShowEmpty
+    );
+    app.target_tab = TargetTab::Local;
+    app.leader_key = ' ';
+    let space = KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE);
+    assert_eq!(map_panel_key(&app, space, false), None);
+    assert_eq!(
+        map_key_to_action(space, app.input_mode, app.leader_key),
+        Action::ToggleCommitSelect
+    );
+}
