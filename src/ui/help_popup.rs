@@ -183,6 +183,7 @@ fn help_lines(
     let toggle_file_list = bindings.labels(Action::ToggleFileList, leader);
     let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
     let toggle_diff_view = bindings.labels(Action::ToggleDiffView, leader);
+    let open_pr_in_browser = bindings.labels(Action::OpenPrInBrowser, leader);
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let leader = leader_display(leader);
@@ -366,6 +367,13 @@ fn help_lines(
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Toggle unified/side-by-side diff view (also `:diff`)"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                format!("  {open_pr_in_browser}  "),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Open current PR in default browser (PR mode)"),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1112,6 +1120,33 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_pr_browser_help_uses_active_binding_and_custom_leader() {
+        for (config, leader, label) in [
+            ("", ';', ";o"),
+            ("leader=' '", ' ', "Space o"),
+            (
+                "[keybindings]\nopen_pr_in_browser=['<leader>b', 'F12']",
+                ',',
+                ",b / F12",
+            ),
+            ("[keybindings]\nopen_pr_in_browser=[]", ';', "unbound"),
+        ] {
+            let config = toml::from_str(config).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let lines = help_lines(leader, false, &bindings);
+            assert_description_columns_align(&lines);
+            let row = lines
+                .iter()
+                .find(|line| {
+                    line.spans.len() == 2
+                        && line.spans[1].content == "Open current PR in default browser (PR mode)"
+                })
+                .unwrap();
+            assert_eq!(row.spans[0].content.trim(), label);
+        }
+    }
 
     #[test]
     fn diff_toggle_help_shows_active_aliases_and_unbound_in_its_own_row() {

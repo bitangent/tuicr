@@ -18,6 +18,7 @@ src/
 ├── config/
 │   └── mod.rs           # User config loading (XDG on Unix, %APPDATA% on Windows)
 ├── app.rs               # Application state (App struct, InputMode, etc.)
+│   ├── browser.rs      # Validated HTTP(S) PR browser dispatch + async result polling
 │   ├── coloring.rs      # Render-time syntax coloring of hunks near the viewport
 │   ├── editor_target.rs # Read-only snapshots of a PR revision for `$EDITOR`
 │   └── file_filter.rs   # File-tree include/exclude regex filters + `/` path search
@@ -104,7 +105,7 @@ src/
 ├── input/
 │   ├── mod.rs
 │   ├── keybindings.rs   # Action enum, map_key_to_action() for each InputMode
-│   ├── panel_bindings.rs # Nine configurable normal-review panel/filter-clear actions, parsing/validation/labels
+│   ├── panel_bindings.rs # Ten configurable normal-review panel/browser/filter-clear actions, parsing/validation/labels
 │   └── mode.rs          # InputMode enum definition (unused, defined in app.rs)
 │
 ├── persistence/
@@ -210,7 +211,7 @@ Repository-managed agent integrations:
 
 - All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, etc.)
 - `map_key_to_action(key, mode)` returns the appropriate Action
-- `App::panel_bindings` resolves only the nine configurable panel focus/view and filter-clear actions. Filter-clear actions remain tree-only. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route only in `Normal` outside `file_filter.draft`; help labels must use this same resolved map, not hardcoded leader suffixes.
+- `App::panel_bindings` resolves only the ten configurable panel focus/view, browser, and filter-clear actions. Filter-clear actions remain tree-only. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route only in `Normal` outside `file_filter.draft`; help labels must use this same resolved map, not hardcoded leader suffixes.
 - `map_global_key(key)` covers keys that mean the same thing in every mode (`Ctrl-l` → `Redraw`). `main.rs` checks it through `handler::handle_global_key` before the pending-prefix, vim-editor and per-mode maps, so these keys never reach a text buffer
 - `Redraw` (and `Event::Resize`) call `App::request_full_redraw`; the main loop takes the flag before the next draw and calls `TerminalSession::repaint_from_scratch` inside the synchronized update. Do not use ratatui's `Terminal::clear` there: it queries the cursor position, which times out under `--stdout`
 
@@ -253,6 +254,7 @@ Word emphasis (`--color-words`) is computed lazily for visible hunks in `app/col
 - `self-replace` + `tempfile`: Guarded staging and cross-platform executable swaps
 - `toml`: User config parsing
 - `arboard`: Clipboard access
+- `opener` + `url`: Default-browser dispatch after validating an HTTP(S) PR URL; dispatch runs off the TUI thread, with errors polled into the message bar.
 - `ignore`: Gitignore-style matcher for `.tuicrignore`
 - `chrono`: Timestamps
 - `thiserror` + `anyhow`: Error handling

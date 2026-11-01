@@ -1356,6 +1356,8 @@ pub struct App {
     pub dirty: bool,
     pub quit_warned: bool,
     pub message: Option<Message>,
+    /// Present only while a default-browser launch is being dispatched.
+    browser_open_rx: Option<std::sync::mpsc::Receiver<std::result::Result<(), String>>>,
     pub pending_confirm: Option<ConfirmAction>,
     pub supports_keyboard_enhancement: bool,
     pub show_file_list: bool,
@@ -1919,6 +1921,7 @@ impl AppStartupOptions<'_> {
 }
 
 mod annotations;
+mod browser;
 mod coloring;
 mod comment_vim;
 mod comments;

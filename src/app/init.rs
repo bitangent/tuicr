@@ -582,6 +582,7 @@ impl App {
             dirty: false,
             quit_warned: false,
             message: None,
+            browser_open_rx: None,
             pending_confirm: None,
             supports_keyboard_enhancement: false,
             show_file_list: true,

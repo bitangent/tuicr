@@ -1104,6 +1104,8 @@ mod tests {
             "[keybindings]\nunknown=[]",
             "[keybindings]\nfocus_left=['<leader>l']",
             "[keybindings]\nfocus_left=['<leader>d']",
+            "[keybindings]\nfocus_left=['<leader>o']",
+            "[keybindings]\nopen_pr_in_browser=['<leader>h']",
             "[keybindings]\nfocus_left=['Ctrl-c']",
         ] {
             let outcome = parse_config(&format!("theme='light'\nwrap=true\n{section}\n"));
@@ -1136,6 +1138,23 @@ mod tests {
         let outcome = parse_config("leader=' '");
         assert_eq!(outcome.config.unwrap().leader, Some(' '));
         assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn open_pr_browser_config_accepts_custom_bindings_and_unbinding() {
+        for values in ["['<leader>b', 'F12']", "[]"] {
+            let outcome = parse_config(&format!(
+                "leader=' '\n[keybindings]\nopen_pr_in_browser={values}"
+            ));
+            assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+            let config = outcome.config.unwrap();
+            assert!(
+                config
+                    .keybindings
+                    .unwrap()
+                    .contains_key("open_pr_in_browser")
+            );
+        }
     }
 
     #[test]

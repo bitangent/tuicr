@@ -278,7 +278,7 @@ store.add_comment(
 
 Path: `~/.config/tuicr/config.toml` on Linux/macOS, `%APPDATA%\tuicr\config.toml` on Windows.
 
-Panel focus, file-tree visibility, and current-file-only/continuous diff toggling
+Panel focus, view toggles, and opening the current PR in a browser
 can be rebound with [`[keybindings]`](docs/CONFIG.md#configurable-panel-keys).
 Defaults stay unchanged; `?` shows your active bindings.
 
@@ -321,6 +321,10 @@ Use `<leader>d` (default `;d`; Space then d with a Space leader) or `:diff`
 to toggle unified / side-by-side diff view. The shortcut is configurable as
 `toggle_diff_view` in [config](docs/CONFIG.md#configurable-panel-keys).
 
+Use `<leader>o` (default `;o`; Space then o with a Space leader) to open the
+currently reviewed PR in your default browser. Rebind or unbind `open_pr_in_browser`
+in [config](docs/CONFIG.md#configurable-panel-keys).
+
 A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 
 | Key | Action |
@@ -340,6 +344,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `r` | Toggle file reviewed |
 | `R` | Toggle hunk reviewed |
 | `e` | Open focused file in `$EDITOR` (in PR review: the PR's revision, as a read-only copy when the checkout differs) |
+| `<leader>o` | Open current PR in default browser (PR mode) |
 | `y` | Copy review to clipboard |
 | `:edit` | Open focused file in `$EDITOR` |
 | `:submit` | Push review to GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, or Gerrit |

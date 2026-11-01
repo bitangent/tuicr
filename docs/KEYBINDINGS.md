@@ -130,7 +130,7 @@ considers files that pass the active filters.
 
 ## Panel focus
 
-The six focus/view bindings below are defaults. Override them with
+The focus/view and browser bindings below are defaults. Override them with
 [`[keybindings]`](CONFIG.md#configurable-panel-keys); `?` shows the active bindings.
 Overrides apply only in normal review navigation, never in text-entry prompts or
 selectors. Other bindings in this table remain fixed.
@@ -144,6 +144,7 @@ selectors. Other bindings in this table remain fixed.
 | `<leader>j` | Move focus down (files to comments when visible, otherwise diff) |
 | `<leader>e` | Toggle file list visibility |
 | `<leader>d` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode) |
+| `<leader>o` | Open current PR in default browser (PR mode) |
 | `<leader>f` | Toggle current-file-only / continuous diff view (also `:focus` / `:f`) |
 | `<` / `>` | Narrow / widen the outer sidebar by 2 percentage points (no leader) |
 | `=` | Reset sidebar width to the configured preference (no leader) |
@@ -154,6 +155,20 @@ selectors. Other bindings in this table remain fixed.
 With `leader = " "`, press Space then d to toggle the diff layout. Rebind or
 unbind `toggle_diff_view` in [config](CONFIG.md#configurable-panel-keys); `:diff`
 remains available. Bare `d` still starts the delete prefix.
+
+### Open PR in browser
+
+`<leader>o` (default `;o`) opens the **currently reviewed** PR/MR/change URL in
+this machine's default browser from any normal review pane. With `leader = " "`,
+press Space then o. Rebind or disable it with `keybindings.open_pr_in_browser`.
+It does not open a highlighted row in the target selector or run during text entry.
+Local reviews and missing or non-HTTP(S) URLs show a warning instead.
+
+The launch runs in the background without handing the terminal to a browser.
+“PR URL sent to default browser” confirms dispatch, not that the page loaded;
+on Linux, launcher failures after dispatch may not be reported. If no browser
+appears (for example on a remote/headless machine), use `:copy-url` and paste the
+URL into your local browser. Detected launch errors also suggest this fallback.
 
 ### Sidebar resizing
 

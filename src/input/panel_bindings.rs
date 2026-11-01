@@ -1,4 +1,4 @@
-//! The nine configurable review-navigation actions, not a general mode keymap.
+//! Configurable normal-review actions, not a general mode keymap.
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::keybindings::{Action, map_file_tree_mode, map_global_key, map_key_to_action};
@@ -15,7 +15,7 @@ struct Binding {
 #[derive(Debug, Clone)]
 pub struct PanelBindings(Vec<(Action, Vec<Binding>)>);
 
-fn actions() -> [(&'static str, Action, char); 9] {
+fn actions() -> [(&'static str, Action, char); 10] {
     [
         ("focus_left", Action::FocusLeft, 'h'),
         ("focus_right", Action::FocusRight, 'l'),
@@ -24,6 +24,7 @@ fn actions() -> [(&'static str, Action, char); 9] {
         ("toggle_file_list", Action::ToggleFileList, 'e'),
         ("toggle_single_file_view", Action::ToggleSingleFileView, 'f'),
         ("toggle_diff_view", Action::ToggleDiffView, 'd'),
+        ("open_pr_in_browser", Action::OpenPrInBrowser, 'o'),
         ("file_tree_clear_include", Action::FileTreeClearInclude, 'I'),
         ("file_tree_clear_exclude", Action::FileTreeClearExclude, 'E'),
     ]
@@ -310,6 +311,42 @@ mod tests {
     }
     fn key(c: char) -> KeyEvent {
         KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn open_pr_browser_defaults_aliases_unbinding_and_conflicts() {
+        let map = PanelBindings::default();
+        assert_eq!(map.resolve(key('o'), true), Some(Action::OpenPrInBrowser));
+        assert_eq!(map.resolve(key('o'), false), None);
+        assert_eq!(map.labels(Action::OpenPrInBrowser, ' '), "Space o");
+        let map = PanelBindings::from_config(&config(
+            "leader=','\n[keybindings]\nopen_pr_in_browser=['<leader>b', 'F12']",
+        ))
+        .unwrap();
+        assert_eq!(map.resolve(key('o'), true), None);
+        assert_eq!(map.resolve(key('b'), true), Some(Action::OpenPrInBrowser));
+        assert_eq!(
+            map.resolve(KeyEvent::new(KeyCode::F(12), KeyModifiers::NONE), false),
+            Some(Action::OpenPrInBrowser)
+        );
+        assert_eq!(map.labels(Action::OpenPrInBrowser, ','), ",b / F12");
+        let map = PanelBindings::from_config(&config(
+            "[keybindings]\nopen_pr_in_browser=[]\nfocus_left=['<leader>o']",
+        ))
+        .unwrap();
+        assert_eq!(map.labels(Action::OpenPrInBrowser, ';'), "unbound");
+        assert_eq!(map.resolve(key('o'), true), Some(Action::FocusLeft));
+        for overrides in [
+            "focus_left=['<leader>o']",
+            "open_pr_in_browser=['<leader>h']",
+            "open_pr_in_browser=['j']",
+            "open_pr_in_browser=['<leader>c']",
+        ] {
+            assert!(
+                PanelBindings::from_config(&config(&format!("[keybindings]\n{overrides}")))
+                    .is_err()
+            );
+        }
     }
 
     #[test]
