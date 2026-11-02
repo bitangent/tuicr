@@ -135,6 +135,7 @@ pub enum Action {
     BeginTargetFilter,
     /// Toggle PR tab between all open PRs and PRs awaiting your review (`r`).
     TogglePrReviewRequestedFilter,
+    OpenPrViewPicker,
     /// Sessions tab: show or hide sessions holding no review progress.
     SessionsTabToggleShowEmpty,
     /// Sessions tab: delete the session under the cursor, after a confirm.
@@ -551,6 +552,7 @@ fn map_commit_select_mode_with_q_quits(key: KeyEvent, q_quits: bool) -> Action {
         (KeyCode::BackTab, _) => Action::TargetSelectorTabPrev,
         (KeyCode::Char('/'), _) => Action::BeginTargetFilter,
         (KeyCode::Char('r'), KeyModifiers::NONE) => Action::TogglePrReviewRequestedFilter,
+        (KeyCode::Char('v'), KeyModifiers::NONE) => Action::OpenPrViewPicker,
         // Sessions-tab only; the other tabs ignore these in their dispatch.
         (KeyCode::Char('a'), KeyModifiers::NONE) => Action::SessionsTabToggleShowEmpty,
         (KeyCode::Char('d'), KeyModifiers::NONE) => Action::PendingDCommand,
@@ -613,6 +615,19 @@ pub fn map_target_filter_mode(key: KeyEvent) -> Action {
         (KeyCode::Char(c), mods) if is_altgr_text(mods) => Action::InsertChar(c),
         (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => Action::InsertChar(c),
         _ => Action::None,
+    }
+}
+
+/// Type-to-search PR view picker: printable keys are text, not selector shortcuts.
+pub fn map_pr_view_picker_mode(key: KeyEvent) -> Action {
+    match (key.code, key.modifiers) {
+        (KeyCode::Down, KeyModifiers::NONE) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+            Action::CursorDown(1)
+        }
+        (KeyCode::Up, KeyModifiers::NONE) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+            Action::CursorUp(1)
+        }
+        _ => map_target_filter_mode(key),
     }
 }
 
@@ -1286,5 +1301,32 @@ mod tests {
             map_submit_action_picker_mode_with_q_quits(key(KeyCode::Char('q')), true),
             Action::Quit
         );
+    }
+    #[test]
+    fn pr_view_picker_navigation_preserves_printable_shortcuts_as_search_text() {
+        let ctrl = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL);
+        let altgr = |c| KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL | KeyModifiers::ALT);
+        assert_eq!(
+            map_commit_select_mode(key(KeyCode::Char('v'))),
+            Action::OpenPrViewPicker
+        );
+        for (key_event, expected) in [
+            (key(KeyCode::Down), Action::CursorDown(1)),
+            (key(KeyCode::Up), Action::CursorUp(1)),
+            (ctrl('n'), Action::CursorDown(1)),
+            (ctrl('p'), Action::CursorUp(1)),
+            (key(KeyCode::Enter), Action::SubmitInput),
+            (key(KeyCode::Esc), Action::ExitMode),
+            (key(KeyCode::Tab), Action::None),
+        ] {
+            assert_eq!(map_pr_view_picker_mode(key_event), expected);
+        }
+        for c in ['j', 'k', 'a', 'r', 'q', '/', ':', ';', 'v'] {
+            assert_eq!(
+                map_pr_view_picker_mode(key(KeyCode::Char(c))),
+                Action::InsertChar(c)
+            );
+        }
+        assert_eq!(map_pr_view_picker_mode(altgr('é')), Action::InsertChar('é'));
     }
 }

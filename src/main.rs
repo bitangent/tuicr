@@ -355,6 +355,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(ref cfg) = config_outcome.config {
         app.default_sidebar_width = cfg.sidebar_width.unwrap_or(config::DEFAULT_SIDEBAR_WIDTH);
         app.sidebar_width = app.default_sidebar_width;
+        app.pr_views.extend(cfg.pr_views.iter().cloned());
         app.show_pr_checks = cfg.show_pr_checks.unwrap_or(false);
         app.show_pr_comments = cfg.show_pr_comments.unwrap_or(true);
         app.initial_comments_visibility = pr_comments_visibility;
@@ -715,6 +716,10 @@ fn main() -> anyhow::Result<()> {
                     let mut action = if let Some(action) = handler::map_panel_key(&app, key, false)
                     {
                         action
+                    } else if app.input_mode == InputMode::CommitSelect
+                        && app.pr_view_picker.is_some()
+                    {
+                        tuicr::input::keybindings::map_pr_view_picker_mode(key)
                     } else if app.input_mode == InputMode::CommitSelect && app.pr_filter_editing() {
                         map_target_filter_mode(key)
                     } else if app.input_mode == InputMode::Normal && app.file_tree_prompt_editing()
@@ -887,7 +892,9 @@ fn main() -> anyhow::Result<()> {
                         InputMode::Comment => handle_comment_action(&mut app, action),
                         InputMode::Command => handle_command_action(&mut app, action),
                         InputMode::Search => handle_search_action(&mut app, action),
-                        InputMode::CommitSelect if app.pr_filter_editing() => {
+                        InputMode::CommitSelect
+                            if app.pr_filter_editing() || app.pr_view_picker.is_some() =>
+                        {
                             handle_commit_select_action(&mut app, action)
                         }
                         _ => {}

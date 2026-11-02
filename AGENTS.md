@@ -21,6 +21,7 @@ src/
 │   ├── browser.rs      # Validated HTTP(S) PR browser dispatch + async result polling
 │   ├── coloring.rs      # Render-time syntax coloring of hunks near the viewport
 │   ├── editor_target.rs # Read-only snapshots of a PR revision for `$EDITOR`
+│   ├── pr_view_picker.rs # Config-defined PR views: type-to-search picker state
 │   └── file_filter.rs   # File-tree include/exclude regex filters + `/` path search
 ├── error.rs             # Error types (TuicrError enum)
 ├── editor.rs            # External $EDITOR command construction and launch helpers
@@ -125,6 +126,7 @@ src/
     ├── status_bar.rs    # Header, status bar, command line rendering
     ├── help_popup.rs    # Help overlay (? key)
     ├── summary_popup.rs # :summary view of pending local-draft comments
+    ├── pr_view_picker.rs # Small themed PR-view search popup
     ├── theme_picker.rs  # :theme runtime picker modal (live preview, / filter)
     ├── comment_panel.rs # Comment input dialog, confirm dialog
     └── styles.rs        # Color constants and style helper functions
@@ -283,6 +285,25 @@ Forge selection is host-driven: `parse_any_remote_url` tries Bitbucket (`bitbuck
 - `resolve_diff_base_sha` — best-effort refinement of the reported PR base to the displayed diff's merge base; see the `base_sha` gotcha below.
 - `fetch_file_lines` — remote context expansion in the diff view.
 - `create_review` — POST a review with inline comments via `CreateReviewRequest`.
+
+### Named PR views
+
+- `PullRequestView` in `forge/traits.rs` is a name plus optional `author`,
+  `review_requested`, and `draft` predicates. Config `[[pr_views]]` appends to
+  always-present All open / Created by me / Review requested built-ins; malformed
+  entries warn and are skipped as a unit, never broadened by dropping a predicate.
+- `PullRequestsTab` owns the active view in every enabled state. `v` / `:pr-views`
+  opens `App::pr_view_picker` inside CommitSelect; printable keys search names,
+  arrows/Ctrl-n/Ctrl-p move, Enter selects, Esc leaves the list untouched.
+  Input and mouse events cannot reach browser/leader/tab/PR actions while open.
+- Each selected view (even reselected) replaces `pr_load_rx` and starts page one;
+  this discards stale initial/load-more results without a second generation system.
+  Paging snapshots the complete view and uses the unfiltered loaded-row count.
+  `a`/`r` select/toggle built-ins and replace custom filters; `/` is local only.
+- `ForgeBackend::list_pull_requests_view` preserves the existing scope API for
+  other providers: exact legacy predicates delegate, all other combinations error.
+  GitHub overrides it using `gh pr list --author` and one combined `--search`
+  argument for reviewer/draft predicates, before the existing prefix pagination.
 
 ### Async pattern
 

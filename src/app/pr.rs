@@ -734,7 +734,7 @@ impl App {
         origin: ForgeRepository,
         override_repo: Option<ForgeRepository>,
         skip_resolution: bool,
-        scope: crate::forge::traits::PullRequestListScope,
+        view: crate::forge::traits::PullRequestView,
     ) {
         use crate::forge::selector::PR_PAGE_SIZE;
         use crate::forge::traits::{ForgeKind, PullRequestListQuery};
@@ -755,10 +755,9 @@ impl App {
                 resolve_canonical_repository(&origin, override_repo.as_ref(), &runner)
             };
             let backend = create_forge_backend(&canonical, None, show_pr_checks, show_pr_comments);
-            let query =
-                PullRequestListQuery::first_page_with_scope(canonical.clone(), PR_PAGE_SIZE, scope);
+            let query = PullRequestListQuery::first_page(canonical.clone(), PR_PAGE_SIZE);
             let result = backend
-                .list_pull_requests(query)
+                .list_pull_requests_view(query, &view)
                 .map(|page| (page.pull_requests, page.has_more))
                 .map_err(|err| err.to_string());
             let _ = tx.send(PrLoadEvent::Initial { canonical, result });
@@ -769,7 +768,7 @@ impl App {
     fn spawn_pr_load_more(
         &mut self,
         repository: ForgeRepository,
-        scope: crate::forge::traits::PullRequestListScope,
+        view: crate::forge::traits::PullRequestView,
         already_loaded: usize,
     ) {
         use crate::forge::selector::PR_PAGE_SIZE;
@@ -786,10 +785,10 @@ impl App {
                 repository,
                 already_loaded,
                 page_size: PR_PAGE_SIZE,
-                scope,
+                scope: crate::forge::traits::PullRequestListScope::Open,
             };
             let result = backend
-                .list_pull_requests(query)
+                .list_pull_requests_view(query, &view)
                 .map(|page| (page.pull_requests, page.has_more))
                 .map_err(|err| err.to_string());
             let _ = tx.send(PrLoadEvent::LoadMore(result));
@@ -853,14 +852,14 @@ impl App {
     }
 
     pub fn toggle_pr_scope(&mut self, target: crate::forge::traits::PullRequestListScope) {
-        let Some((repo, scope)) = self.pr_tab.toggle_scope_and_start_reload(target) else {
+        let Some((repo, view)) = self.pr_tab.toggle_scope_and_start_reload(target) else {
             return;
         };
         self.pr_filter_draft = None;
         let override_repo = self.repo_url_override.clone();
         let skip_resolution = self.canonical_resolved;
-        self.spawn_pr_initial_load(repo, override_repo, skip_resolution, scope);
-        self.set_message(format!("PR list: {}", scope.label()));
+        self.set_message(format!("PR list: {}", view.name));
+        self.spawn_pr_initial_load(repo, override_repo, skip_resolution, view);
     }
 
     /// Handle Enter on the PR tab. Returns true when the action was handled
@@ -873,8 +872,8 @@ impl App {
             return true;
         }
         if self.pr_tab.cursor_on_load_more() {
-            if let Some((repo, scope, already)) = self.pr_tab.start_load_more() {
-                self.spawn_pr_load_more(repo, scope, already);
+            if let Some((repo, view, already)) = self.pr_tab.start_load_more() {
+                self.spawn_pr_load_more(repo, view, already);
             }
             return true;
         }

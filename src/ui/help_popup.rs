@@ -188,6 +188,7 @@ fn help_lines(
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let pr_authored_overridden = bindings.claims_pr_selector_key('a', leader);
+    let pr_views_overridden = bindings.claims_pr_selector_key('v', leader);
     let pr_requested_overridden = bindings.claims_pr_selector_key('r', leader);
     let leader = leader_display(leader);
     let mut lines = vec![
@@ -495,6 +496,17 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
+                "  v         ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(if pr_views_overridden {
+                "PR views shortcut overridden by browser binding or leader; use :pr-views"
+            } else {
+                "Choose a configured PR view (type to filter, arrows, Enter, Esc)"
+            }),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 "  /         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
@@ -508,7 +520,7 @@ fn help_lines(
             Span::raw(if pr_requested_overridden {
                 "PR scope shortcut overridden by browser binding or leader"
             } else {
-                "Toggle requested / all open PRs (replaces created-by-me scope)"
+                "Toggle requested / all open PRs (replaces current view)"
             }),
         ]),
         Line::from(vec![

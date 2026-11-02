@@ -3075,7 +3075,7 @@ fn authored_scope_dispatch_resets_draft_and_disconnects_stale_results() {
         .unwrap();
 
     crate::handler::handle_commit_select_action(&mut app, Action::SessionsTabToggleShowEmpty);
-    assert_eq!(app.pr_tab.scope(), PullRequestListScope::AuthoredByMe);
+    assert_eq!(app.pr_tab.scope(), Some(PullRequestListScope::AuthoredByMe));
     assert!(app.pr_filter_draft.is_none());
     assert!(!app.sessions_tab.show_empty());
     assert!(
@@ -3097,7 +3097,7 @@ fn authored_scope_dispatch_resets_draft_and_disconnects_stale_results() {
     app.poll_pr_load_events();
     assert!(app.pr_tab.view().rows.is_empty());
     assert_eq!(app.forge_repository, Some(repository));
-    assert_eq!(app.pr_tab.scope(), PullRequestListScope::AuthoredByMe);
+    assert_eq!(app.pr_tab.scope(), Some(PullRequestListScope::AuthoredByMe));
 }
 
 #[test]
@@ -3134,4 +3134,225 @@ fn authored_reload_clears_an_existing_filter_draft() {
     app.pr_filter_draft = Some("unfinished".into());
     app.toggle_pr_scope(crate::forge::traits::PullRequestListScope::AuthoredByMe);
     assert!(app.pr_filter_draft.is_none());
+}
+
+#[test]
+fn named_pr_view_picker_types_unicode_and_cancels_without_changing_list() {
+    use crate::input::Action;
+    let mut app = build_app();
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.pr_tab = PullRequestsTab::new(Some(ForgeRepository::github("github.com", "owner", "repo")));
+    app.pr_tab.start_initial_load();
+    app.pr_tab
+        .apply_initial_load(Ok((vec![sample_pr(1, "keep")], true)));
+    app.pr_tab.set_filter("keep".into());
+    app.pr_views.push(crate::forge::traits::PullRequestView {
+        name: "Équipe drafts".into(),
+        author: Some("@me".into()),
+        review_requested: None,
+        draft: Some(true),
+    });
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.pr_load_rx = Some(rx);
+    app.open_pr_view_picker();
+    for c in "éQUIPE".chars() {
+        crate::handler::handle_commit_select_action(&mut app, Action::InsertChar(c));
+    }
+    let picker = app.pr_view_picker.as_ref().unwrap();
+    assert_eq!(picker.selected_view().unwrap().name, "Équipe drafts");
+    crate::handler::handle_commit_select_action(&mut app, Action::DeleteChar);
+    assert_eq!(app.pr_view_picker.as_ref().unwrap().query, "éQUIP");
+    crate::handler::handle_commit_select_action(&mut app, Action::ExitMode);
+    assert!(app.pr_view_picker.is_none());
+    assert_eq!(app.pr_tab.view().filter, "keep");
+    assert_eq!(app.pr_tab.cursor_pr().unwrap().number, 1);
+    assert_eq!(app.pr_tab.view().view_name, "All open");
+    assert!(
+        tx.send(PrLoadEvent::LoadMore(Ok((Vec::new(), false))))
+            .is_ok()
+    );
+}
+
+#[test]
+fn named_pr_view_picker_empty_enter_stays_open_and_captures_bindings() {
+    use crate::input::{Action, keybindings::map_pr_view_picker_mode};
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    let mut app = build_app();
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.pr_tab = PullRequestsTab::new(Some(ForgeRepository::github("github.com", "owner", "repo")));
+    app.open_pr_view_picker();
+    for c in "jkarv/;?不存在".chars() {
+        let key = KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE);
+        assert_eq!(crate::handler::map_panel_key(&app, key, false), None);
+        assert_eq!(crate::handler::map_panel_key(&app, key, true), None);
+        let action = map_pr_view_picker_mode(key);
+        assert_eq!(action, Action::InsertChar(c));
+        crate::handler::handle_commit_select_action(&mut app, action);
+    }
+    crate::handler::handle_commit_select_action(&mut app, Action::SubmitInput);
+    assert!(app.pr_view_picker.is_some());
+    assert!(app.pr_load_rx.is_none());
+    crate::handler::handle_commit_select_action(&mut app, Action::ClearLine);
+    crate::handler::handle_commit_select_action(&mut app, Action::CursorUp(1));
+    assert_eq!(
+        app.pr_view_picker
+            .as_ref()
+            .unwrap()
+            .selected_view()
+            .unwrap()
+            .name,
+        "All open"
+    );
+    crate::handler::handle_commit_select_action(&mut app, Action::CursorDown(100));
+    assert_eq!(
+        app.pr_view_picker
+            .as_ref()
+            .unwrap()
+            .selected_view()
+            .unwrap()
+            .name,
+        "Review requested"
+    );
+}
+
+#[test]
+fn named_pr_view_selection_and_reselection_drop_stale_responses() {
+    use crate::forge::traits::{PullRequestListScope, PullRequestView};
+    use crate::input::Action;
+    let mut app = build_app();
+    app.input_mode = InputMode::CommitSelect;
+    let repository = ForgeRepository::gitlab("gitlab.com", "owner", "repo");
+    app.target_tab = TargetTab::PullRequests;
+    app.forge_repository = Some(repository.clone());
+    app.canonical_resolved = true;
+    app.pr_tab = PullRequestsTab::new(Some(repository.clone()));
+    app.pr_tab.start_initial_load();
+    app.pr_tab
+        .apply_initial_load(Ok((vec![sample_pr(1, "old")], true)));
+    app.pr_tab.set_filter("old".into());
+    let mut custom = PullRequestView::from_scope(PullRequestListScope::AuthoredByMe);
+    custom.name = "My drafts".into();
+    custom.draft = Some(true);
+    app.pr_views.push(custom.clone());
+    for _ in 0..2 {
+        let (old_tx, old_rx) = std::sync::mpsc::channel();
+        app.pr_load_rx = Some(old_rx);
+        old_tx
+            .send(PrLoadEvent::Initial {
+                canonical: ForgeRepository::github("github.com", "stale", "repo"),
+                result: Ok((vec![sample_pr(99, "stale")], false)),
+            })
+            .unwrap();
+        app.open_pr_view_picker();
+        for c in "My drafts".chars() {
+            crate::handler::handle_commit_select_action(&mut app, Action::InsertChar(c));
+        }
+        crate::handler::handle_commit_select_action(&mut app, Action::SubmitInput);
+        assert!(app.pr_view_picker.is_none());
+        assert_eq!(app.pr_tab.active_view(), Some(&custom));
+        assert!(app.pr_tab.view().rows.is_empty());
+        assert_eq!(app.pr_tab.view().filter, "");
+        assert!(
+            old_tx
+                .send(PrLoadEvent::LoadMore(Ok((Vec::new(), false))))
+                .is_err()
+        );
+        // Replace the explicit unsupported-filter worker with a deterministic response.
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.pr_load_rx = Some(rx);
+        tx.send(PrLoadEvent::Initial {
+            canonical: repository.clone(),
+            result: Ok((Vec::new(), true)),
+        })
+        .unwrap();
+        app.poll_pr_load_events();
+        assert_eq!(app.forge_repository, Some(repository.clone()));
+        assert_eq!(app.pr_tab.active_view(), Some(&custom));
+    }
+}
+
+#[test]
+fn named_pr_view_picker_renders_bounded_search_empty_and_scroll_states() {
+    use crate::forge::traits::{PullRequestListScope, PullRequestView};
+    use crate::input::Action;
+    use ratatui::{Terminal, backend::TestBackend};
+    let mut app = build_app();
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.pr_tab = PullRequestsTab::new(Some(ForgeRepository::github("github.com", "owner", "repo")));
+    for n in 0..20 {
+        let mut view = PullRequestView::from_scope(PullRequestListScope::AuthoredByMe);
+        view.name = format!("My drafts {n:02}");
+        app.pr_views.push(view);
+    }
+    app.open_pr_view_picker();
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| crate::ui::render(frame, &mut app))
+        .unwrap();
+    let rendered = format!("{:?}", terminal.backend().buffer());
+    assert!(rendered.contains("PR views"), "{rendered}");
+    assert!(rendered.contains("View: All open"), "{rendered}");
+    assert!(rendered.contains("enter select"), "{rendered}");
+    app.handle_pr_view_picker_action(Action::CursorDown(100));
+    terminal
+        .draw(|frame| crate::ui::render(frame, &mut app))
+        .unwrap();
+    assert!(app.pr_view_picker.as_ref().unwrap().list_state.offset() > 0);
+    assert!(format!("{:?}", terminal.backend().buffer()).contains("My drafts 19"));
+    app.handle_pr_view_picker_action(Action::Paste("NO MATCH\n".into()));
+    terminal
+        .draw(|frame| crate::ui::render(frame, &mut app))
+        .unwrap();
+    assert!(format!("{:?}", terminal.backend().buffer()).contains("No views match"));
+    for (width, height) in [(1, 1), (5, 3), (20, 8)] {
+        let mut tiny = Terminal::new(TestBackend::new(width, height)).unwrap();
+        tiny.draw(|frame| crate::ui::render(frame, &mut app))
+            .unwrap();
+    }
+    app.handle_pr_view_picker_action(Action::ExitMode);
+    terminal
+        .draw(|frame| crate::ui::render(frame, &mut app))
+        .unwrap();
+    assert!(!format!("{:?}", terminal.backend().buffer()).contains("PR views"));
+}
+
+#[test]
+fn named_pr_view_picker_command_survives_binding_conflicts_and_mouse_cannot_open_pr() {
+    use crate::input::Action;
+    use crossterm::event::{
+        KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    };
+    let mut app = build_app();
+    app.input_mode = InputMode::CommitSelect;
+    app.target_tab = TargetTab::PullRequests;
+    app.pr_tab = PullRequestsTab::new(Some(ForgeRepository::github("github.com", "owner", "repo")));
+    app.leader_key = 'v';
+    assert_eq!(
+        crate::handler::map_panel_key(
+            &app,
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::NONE),
+            false
+        ),
+        Some(Action::PendingLeaderCommand)
+    );
+    app.enter_command_mode();
+    app.command_buffer = "pr-views".into();
+    crate::handler::handle_command_action(&mut app, Action::SubmitInput);
+    assert!(app.pr_view_picker.is_some());
+    let tab = app.target_tab;
+    crate::handler::handle_mouse_event(
+        &mut app,
+        MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 2,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        },
+    );
+    assert_eq!(app.target_tab, tab);
+    assert!(app.pr_open_state.is_none());
+    assert!(app.pr_view_picker.is_some());
 }

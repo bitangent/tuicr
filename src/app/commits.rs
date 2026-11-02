@@ -308,10 +308,10 @@ impl App {
     /// Entry-point hook called when the PR tab becomes visible.
     /// Triggers the first network call lazily.
     fn on_target_tab_entered(&mut self) {
-        if let Some((repo, scope)) = self.pr_tab.start_initial_load() {
+        if let Some((repo, view)) = self.pr_tab.start_initial_load() {
             let override_repo = self.repo_url_override.clone();
             let skip_resolution = self.canonical_resolved;
-            self.spawn_pr_initial_load(repo, override_repo, skip_resolution, scope);
+            self.spawn_pr_initial_load(repo, override_repo, skip_resolution, view);
         }
     }
 

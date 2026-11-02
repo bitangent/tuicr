@@ -1266,6 +1266,9 @@ pub struct App {
     pub canonical_resolved: bool,
     /// State machine for the Pull Requests tab.
     pub pr_tab: PullRequestsTab,
+    /// Built-in views followed by validated config-defined views.
+    pub pr_views: Vec<crate::forge::traits::PullRequestView>,
+    pub pr_view_picker: Option<pr_view_picker::PrViewPicker>,
     /// Viewport height of the PR list (set during render).
     pub pr_list_viewport_height: usize,
     /// Inner content rect of the PR list panel (set during render).
@@ -1938,6 +1941,7 @@ mod init;
 mod modes;
 mod navigation;
 mod pr;
+pub mod pr_view_picker;
 mod reviewed;
 mod search;
 mod session;

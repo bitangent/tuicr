@@ -146,7 +146,9 @@ mod tests {
             has_more: true,
             loading_more: false,
             filter: String::new(),
-            scope: PullRequestListScope::Open,
+            selected_view: crate::forge::traits::PullRequestView::from_scope(
+                PullRequestListScope::Open,
+            ),
             cursor: 0,
             scroll_offset: 0,
         };

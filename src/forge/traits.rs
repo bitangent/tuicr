@@ -226,6 +226,84 @@ impl PullRequestListScope {
     }
 }
 
+/// A named, repository-scoped view of open pull requests. Predicates are
+/// combined server-side before pagination; an absent draft predicate includes
+/// both drafts and non-drafts. Names are presentation only.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PullRequestView {
+    pub name: String,
+    pub author: Option<String>,
+    pub review_requested: Option<String>,
+    pub draft: Option<bool>,
+}
+
+impl PullRequestView {
+    pub fn builtins() -> Vec<Self> {
+        [
+            PullRequestListScope::Open,
+            PullRequestListScope::AuthoredByMe,
+            PullRequestListScope::ReviewRequested,
+        ]
+        .into_iter()
+        .map(Self::from_scope)
+        .collect()
+    }
+
+    pub fn from_scope(scope: PullRequestListScope) -> Self {
+        Self {
+            name: scope.label().to_string(),
+            author: (scope == PullRequestListScope::AuthoredByMe).then(|| "@me".to_string()),
+            review_requested: (scope == PullRequestListScope::ReviewRequested)
+                .then(|| "@me".to_string()),
+            draft: None,
+        }
+    }
+
+    /// Backends without named-filter support can reuse existing scopes only
+    /// when *every* predicate matches. Never drop an unsupported predicate.
+    pub fn scope(&self) -> Option<PullRequestListScope> {
+        match (
+            self.author.as_deref(),
+            self.review_requested.as_deref(),
+            self.draft,
+        ) {
+            (None, None, None) => Some(PullRequestListScope::Open),
+            (Some("@me"), None, None) => Some(PullRequestListScope::AuthoredByMe),
+            (None, Some("@me"), None) => Some(PullRequestListScope::ReviewRequested),
+            _ => None,
+        }
+    }
+
+    /// Restrict account values to a single search atom, rather than accepting
+    /// arbitrary search syntax in what is a typed author/reviewer field.
+    pub fn valid_account(value: &str) -> bool {
+        value == "@me"
+            || (value.starts_with(|c: char| c.is_ascii_alphanumeric())
+                && value.ends_with(|c: char| c.is_ascii_alphanumeric())
+                && value
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_')))
+    }
+
+    pub fn validate_filters(&self) -> Result<()> {
+        for (field, value) in [
+            ("author", &self.author),
+            ("review_requested", &self.review_requested),
+        ] {
+            if let Some(value) = value
+                && !Self::valid_account(value)
+            {
+                return Err(TuicrError::UnsupportedOperation(format!(
+                    "PR view {:?}: {field} must be @me or an account login (letters, digits, hyphens, and underscores)",
+                    self.name,
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PullRequestListQuery {
     pub repository: ForgeRepository,
@@ -551,6 +629,24 @@ impl PullRequestInfo {
 
 pub trait ForgeBackend {
     fn list_pull_requests(&self, query: PullRequestListQuery) -> Result<PagedPullRequests>;
+    /// List a named view without silently broadening it on backends that only
+    /// implement the legacy scopes. GitHub supports the full predicate set.
+    fn list_pull_requests_view(
+        &self,
+        mut query: PullRequestListQuery,
+        view: &PullRequestView,
+    ) -> Result<PagedPullRequests> {
+        view.validate_filters()?;
+        query.scope = view.scope().ok_or_else(|| {
+            TuicrError::UnsupportedOperation(format!(
+                "PR view {:?} uses filters not supported for {}",
+                view.name,
+                query.repository.kind.display_name(),
+            ))
+        })?;
+        self.list_pull_requests(query)
+    }
+
     fn get_pull_request(&self, target: PullRequestTarget) -> Result<PullRequestDetails>;
     /// Fetch PR metadata for the description panel. The default builds a
     /// minimal [`PullRequestInfo`] from [`Self::get_pull_request`].
@@ -652,6 +748,48 @@ pub trait ForgeBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_pr_views_map_only_exact_builtin_predicates_to_legacy_scopes() {
+        for scope in [
+            PullRequestListScope::Open,
+            PullRequestListScope::AuthoredByMe,
+            PullRequestListScope::ReviewRequested,
+        ] {
+            let mut view = PullRequestView::from_scope(scope);
+            view.name = "A custom label".to_string();
+            assert_eq!(view.scope(), Some(scope));
+            view.draft = Some(false);
+            assert_eq!(view.scope(), None);
+        }
+        let mut view = PullRequestView::from_scope(PullRequestListScope::AuthoredByMe);
+        view.review_requested = Some("@me".to_string());
+        assert_eq!(view.scope(), None);
+        view.review_requested = None;
+        view.author = Some("alice".to_string());
+        assert_eq!(view.scope(), None);
+    }
+
+    #[test]
+    fn pr_view_accounts_are_single_safe_search_atoms() {
+        for valid in ["@me", "alice", "Alice-123", "mona-cat_octo", "a"] {
+            assert!(PullRequestView::valid_account(valid), "{valid}");
+        }
+        for invalid in [
+            "",
+            "@alice",
+            "-alice",
+            "alice-",
+            "alice bob",
+            "alice\n",
+            "org/team",
+            "alice OR draft:false",
+            "alice:foo",
+            "álîce",
+        ] {
+            assert!(!PullRequestView::valid_account(invalid), "{invalid}");
+        }
+    }
 
     #[test]
     fn should_round_trip_pr_session_key_via_serde() {

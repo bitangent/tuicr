@@ -9,7 +9,7 @@ use crate::forge::remote_comments::{RemoteReviewSummary, RemoteReviewThread};
 use crate::forge::traits::{
     ForgeBackend, ForgeFileLinesRequest, ForgeRepository, GhCreateReviewResponse,
     PagedPullRequests, PullRequestCommit, PullRequestDetails, PullRequestInfo,
-    PullRequestListQuery, PullRequestListScope, PullRequestTarget,
+    PullRequestListQuery, PullRequestTarget, PullRequestView,
 };
 use crate::model::{DiffLine, FilePatch};
 use crate::process::{
@@ -247,6 +247,16 @@ where
     R: GhCommandRunner + Sync,
 {
     fn list_pull_requests(&self, query: PullRequestListQuery) -> Result<PagedPullRequests> {
+        let view = PullRequestView::from_scope(query.scope);
+        self.list_pull_requests_view(query, &view)
+    }
+
+    fn list_pull_requests_view(
+        &self,
+        query: PullRequestListQuery,
+        view: &PullRequestView,
+    ) -> Result<PagedPullRequests> {
+        view.validate_filters()?;
         let page_size = query.page_size.max(1);
         let requested = query.already_loaded + page_size + 1;
         let mut args = vec![
@@ -261,16 +271,20 @@ where
             "--json".to_string(),
             PR_LIST_JSON_FIELDS.to_string(),
         ];
-        match query.scope {
-            PullRequestListScope::Open => {}
-            PullRequestListScope::ReviewRequested => {
-                args.push("--search".to_string());
-                args.push("review-requested:@me".to_string());
-            }
-            PullRequestListScope::AuthoredByMe => {
-                args.push("--author".to_string());
-                args.push("@me".to_string());
-            }
+        if let Some(author) = &view.author {
+            args.push("--author".to_string());
+            args.push(author.clone());
+        }
+        let mut search = Vec::new();
+        if let Some(reviewer) = &view.review_requested {
+            search.push(format!("review-requested:{reviewer}"));
+        }
+        if let Some(draft) = view.draft {
+            search.push(format!("draft:{draft}"));
+        }
+        if !search.is_empty() {
+            args.push("--search".to_string());
+            args.push(search.join(" "));
         }
         let output = self.run_gh(args, &query.repository.host)?;
         let rows: Vec<GhPullRequestSummary> = serde_json::from_str(&output)?;
@@ -1076,7 +1090,7 @@ mod tests {
     use std::sync::Mutex;
 
     use super::*;
-    use crate::forge::traits::ForgeBackend;
+    use crate::forge::traits::{ForgeBackend, PullRequestListScope};
 
     const PR_LIST_JSON: &str = r##"
 [
@@ -1679,6 +1693,115 @@ Match host github-work
                 PR_LIST_JSON_FIELDS,
             ]
         );
+    }
+
+    #[test]
+    fn named_pr_view_composes_server_filters_before_every_page() {
+        for draft in [None, Some(true), Some(false)] {
+            let backend = GitHubGhBackend::with_runner(None, FakeGhRunner::default());
+            let view = crate::forge::traits::PullRequestView {
+                name: "My work".to_string(),
+                author: Some("@me".to_string()),
+                review_requested: Some("alice".to_string()),
+                draft,
+            };
+            for already_loaded in [0, 1] {
+                let result = backend
+                    .list_pull_requests_view(
+                        PullRequestListQuery {
+                            repository: repo(),
+                            already_loaded,
+                            page_size: 1,
+                            // Named predicates replace, never inherit, this legacy scope.
+                            scope: PullRequestListScope::ReviewRequested,
+                        },
+                        &view,
+                    )
+                    .unwrap();
+                assert_eq!(result.total_loaded, already_loaded + 1);
+                assert_eq!(
+                    result.pull_requests[0].number,
+                    if already_loaded == 0 { 148 } else { 125 }
+                );
+            }
+            let calls = backend.runner.calls.lock().unwrap();
+            for (call, limit) in calls.iter().zip(["2", "3"]) {
+                assert_eq!(
+                    &call[0..8],
+                    &[
+                        "pr",
+                        "list",
+                        "--repo",
+                        "agavra/tuicr",
+                        "--state",
+                        "open",
+                        "--limit",
+                        limit
+                    ]
+                );
+                assert_eq!(&call[10..12], &["--author", "@me"]);
+                assert_eq!(call.iter().filter(|arg| *arg == "--search").count(), 1);
+                assert_eq!(call[12], "--search");
+                let search = match draft {
+                    None => "review-requested:alice",
+                    Some(true) => "review-requested:alice draft:true",
+                    Some(false) => "review-requested:alice draft:false",
+                };
+                assert_eq!(call[13], search);
+            }
+        }
+    }
+
+    #[test]
+    fn named_pr_view_rejects_unsafe_accounts_without_running_gh() {
+        let backend = GitHubGhBackend::with_runner(None, FakeGhRunner::default());
+        for field in ["author", "review_requested"] {
+            let mut view =
+                crate::forge::traits::PullRequestView::from_scope(PullRequestListScope::Open);
+            if field == "author" {
+                view.author = Some("alice OR draft:false".to_string());
+            } else {
+                view.review_requested = Some("alice OR draft:false".to_string());
+            }
+            let error = backend
+                .list_pull_requests_view(PullRequestListQuery::first_page(repo(), 30), &view)
+                .unwrap_err();
+            assert!(error.to_string().contains(field));
+        }
+        assert!(backend.runner.calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn named_pr_view_draft_only_and_explicit_author_use_repository_scoped_prefix_pages() {
+        let backend = GitHubGhBackend::with_runner(None, FakeGhRunner::default());
+        let mut view = PullRequestView::from_scope(PullRequestListScope::Open);
+        view.draft = Some(false);
+        for already_loaded in [0, 30] {
+            backend
+                .list_pull_requests_view(
+                    PullRequestListQuery {
+                        repository: repo(),
+                        already_loaded,
+                        page_size: 30,
+                        scope: PullRequestListScope::ReviewRequested,
+                    },
+                    &view,
+                )
+                .unwrap();
+        }
+        view.draft = None;
+        view.author = Some("alice".to_string());
+        backend
+            .list_pull_requests_view(PullRequestListQuery::first_page(repo(), 30), &view)
+            .unwrap();
+        let calls = backend.runner.calls.lock().unwrap();
+        for (call, limit) in calls.iter().zip(["31", "61"]) {
+            assert_eq!(call[3], "agavra/tuicr");
+            assert_eq!(call[5], "open");
+            assert_eq!(call[7], limit);
+            assert_eq!(&call[10..], &["--search", "draft:false"]);
+        }
+        assert_eq!(&calls[2][10..], &["--author", "alice"]);
     }
 
     #[test]

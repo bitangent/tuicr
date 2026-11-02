@@ -20,6 +20,7 @@ pub fn map_panel_key(app: &App, key: KeyEvent, leader: bool) -> Option<Action> {
     if app.input_mode == InputMode::CommitSelect
         && app.target_tab == TargetTab::PullRequests
         && !app.pr_filter_editing()
+        && app.pr_view_picker.is_none()
     {
         if !leader
             && key.code == crossterm::event::KeyCode::Char(app.leader_key)
@@ -125,6 +126,7 @@ const COMMAND_SPECS: &[CommandSpec] = &[
         CommandKind::Targets(TargetTab::Local),
     ),
     CommandSpec::new(&["prs"], CommandKind::Targets(TargetTab::PullRequests)),
+    CommandSpec::new(&["pr-views"], CommandKind::PrViewPicker),
     CommandSpec::new(
         &["sessions", "reviews"],
         CommandKind::Targets(TargetTab::Sessions),
@@ -211,6 +213,7 @@ enum CommandKind {
     Submit(SubmitEvent),
     Comments(PrCommentsVisibility),
     ThemePicker,
+    PrViewPicker,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -239,6 +242,15 @@ pub fn handle_global_key(app: &mut App, key: KeyEvent) -> bool {
 }
 
 pub fn handle_mouse_event(app: &mut App, event: MouseEvent) {
+    // Modal picker must not click through to a PR or change selector tabs.
+    if app.pr_view_picker.is_some() {
+        match event.kind {
+            MouseEventKind::ScrollUp => app.handle_pr_view_picker_action(Action::CursorUp(1)),
+            MouseEventKind::ScrollDown => app.handle_pr_view_picker_action(Action::CursorDown(1)),
+            _ => {}
+        }
+        return;
+    }
     let pos = Position::new(event.column, event.row);
     // Capture the outer divider before normal clicks can start text selection.
     let can_resize = app.input_mode == InputMode::Normal
@@ -1076,6 +1088,17 @@ fn dispatch_command(app: &mut App, kind: CommandKind) -> CommandAfterDispatch {
             app.enter_summary_mode();
             CommandAfterDispatch::KeepMode
         }
+        CommandKind::PrViewPicker => {
+            app.exit_command_mode();
+            if app.input_mode == InputMode::CommitSelect
+                && app.target_tab == TargetTab::PullRequests
+            {
+                app.open_pr_view_picker();
+            } else {
+                app.set_message(":pr-views is available in the Pull Requests selector");
+            }
+            CommandAfterDispatch::KeepMode
+        }
         CommandKind::ThemePicker => {
             app.exit_command_mode();
             app.enter_theme_picker_mode();
@@ -1462,6 +1485,10 @@ pub fn handle_confirm_action(app: &mut App, action: Action) {
 /// tabs (Local and Pull Requests). Tab-shared actions (switch tab, quit) are
 /// handled first; per-tab dispatch follows.
 pub fn handle_commit_select_action(app: &mut App, action: Action) {
+    if app.pr_view_picker.is_some() {
+        app.handle_pr_view_picker_action(action);
+        return;
+    }
     // Filter-editing sub-state on the PR tab. Routed before tab dispatch
     // because typed characters must go to the filter buffer rather than
     // to local-commit movement.
@@ -1551,6 +1578,7 @@ fn handle_local_target_action(app: &mut App, action: Action) {
 
 fn handle_pr_target_action(app: &mut App, action: Action) {
     match action {
+        Action::OpenPrViewPicker => app.open_pr_view_picker(),
         Action::OpenPrInBrowser => app.open_pr_in_browser(),
         Action::CommitSelectUp => app.pr_tab_cursor_up(),
         Action::CommitSelectDown => app.pr_tab_cursor_down(),
