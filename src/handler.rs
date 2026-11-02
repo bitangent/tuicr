@@ -79,6 +79,8 @@ const COMMAND_SPECS: &[CommandSpec] = &[
     CommandSpec::new(&["edit"], CommandKind::Edit),
     CommandSpec::new(&["clip", "export"], CommandKind::Export),
     CommandSpec::new(&["copy-url"], CommandKind::CopyUrl),
+    CommandSpec::new(&["send-agent"], CommandKind::SendToAgent(false)),
+    CommandSpec::new(&["send-agent!"], CommandKind::SendToAgent(true)),
     CommandSpec::new(
         &["clear"],
         CommandKind::Clear(ClearScope::CommentsAndReviewed),
@@ -184,6 +186,7 @@ enum CommandKind {
     Edit,
     Export,
     CopyUrl,
+    SendToAgent(bool),
     Clear(ClearScope),
     Help,
     MessageDetails,
@@ -523,6 +526,63 @@ fn handle_export(app: &mut App) {
             Ok(msg) => app.set_message(msg),
             Err(e) => app.set_warning(format!("{e}")),
         }
+    }
+}
+
+/// Queue a snapshot only in response to an explicit action. Saving a comment,
+/// copying a review, and forge submission never call this path.
+fn handle_send_to_agent(app: &mut App, force: bool) {
+    use sha2::{Digest, Sha256};
+    let review_mode = if app.input_mode == InputMode::Command {
+        app.command_return_mode
+    } else {
+        app.input_mode
+    };
+    if review_mode != InputMode::Normal {
+        app.set_warning("Open a review before using :send-agent");
+        return;
+    }
+    let slug = app.session_slug();
+    let content = generate_export_content(
+        &app.session,
+        &app.diff_source,
+        &app.comment_types,
+        &app.export,
+        &app.forge_review_threads,
+        slug.as_deref(),
+    );
+    let content = match content {
+        Ok(content) => content,
+        Err(e) => {
+            app.set_warning(format!("Agent batch not queued: {e}"));
+            return;
+        }
+    };
+    let digest: [u8; 32] = Sha256::digest(content.as_bytes()).into();
+    if !force
+        && let Some((previous, id)) = &app.last_agent_batch
+        && previous == &digest
+    {
+        app.set_message(format!(
+            "Already queued agent batch {id}; use :send-agent! to resend unchanged review"
+        ));
+        return;
+    }
+    let result = crate::output::agent_queue::resolve_queue_dir(app.agent_queue_dir.as_deref())
+        .and_then(|queue| crate::output::agent_queue::enqueue(&queue, &content));
+    match result {
+        Ok(batch) => {
+            let message = format!("Queued agent batch {} (waiting for runner)", batch.id);
+            app.last_agent_batch = Some((digest, batch.id));
+            if let Some(error) = batch.durability_warning {
+                app.set_warning(format!(
+                    "{message}; directory sync failed: {error}. Do not resend unless needed"
+                ));
+            } else {
+                app.set_message(message);
+            }
+        }
+        Err(e) => app.set_warning(format!("Agent batch not queued: {e}")),
     }
 }
 
@@ -983,6 +1043,10 @@ fn dispatch_command(app: &mut App, kind: CommandKind) -> CommandAfterDispatch {
         }
         CommandKind::Export => {
             handle_export(app);
+            CommandAfterDispatch::ExitCommandMode
+        }
+        CommandKind::SendToAgent(force) => {
+            handle_send_to_agent(app, force);
             CommandAfterDispatch::ExitCommandMode
         }
         CommandKind::CopyUrl => {
@@ -1924,6 +1988,7 @@ fn handle_shared_normal_action(app: &mut App, action: Action) {
         // `A` (vim only) edits with the text cursor at end-of-line.
         Action::EditCommentAtEnd if app.comment_vim_enabled => edit_comment_at_cursor(app, true),
         Action::ExportToClipboard => handle_export(app),
+        Action::SendToAgent => handle_send_to_agent(app, false),
         Action::CopyCommentAtCursor => handle_copy_comment_at_cursor(app),
         Action::SearchNext => {
             app.search_next_in_diff();

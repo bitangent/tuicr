@@ -212,6 +212,8 @@ pub struct AppConfig {
     pub wrap_style: Option<String>,
     pub relative_line_numbers: Option<bool>,
     pub export_legend: Option<bool>,
+    /// Absolute local spool path for explicit agent batches (environment takes precedence).
+    pub agent_queue_dir: Option<String>,
     pub cursor_line: Option<bool>,
     pub search_highlight: Option<bool>,
     pub mouse: Option<bool>,
@@ -229,7 +231,7 @@ pub struct AppConfig {
     /// Defaults to 4 (matching diff tab expansion).
     pub comment_tab_width: Option<usize>,
     pub leader: Option<char>,
-    /// Replacement bindings for the nine panel-navigation/filter-clear actions.
+    /// Replacement bindings for review navigation, browser, agent-send, and filter-clear actions.
     pub keybindings: Option<BTreeMap<String, Vec<String>>>,
     pub editor: Option<String>,
     pub transparent_background: Option<bool>,
@@ -298,6 +300,7 @@ const KNOWN_KEYS: &[&str] = &[
     "wrap_style",
     "relative_line_numbers",
     "export_legend",
+    "agent_queue_dir",
     "cursor_line",
     "search_highlight",
     "mouse",
@@ -701,6 +704,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         word_diff_regex: read_word_diff_regex(table, &mut warnings),
         wrap_style: read_enum(table, "wrap_style", &["flow", "gutter"], &mut warnings),
         export_legend: read_bool(table, "export_legend", &mut warnings),
+        agent_queue_dir: read_string(table, "agent_queue_dir", &mut warnings),
         cursor_line: read_bool(table, "cursor_line", &mut warnings),
         search_highlight: read_bool(table, "search_highlight", &mut warnings),
         mouse: read_bool(table, "mouse", &mut warnings),
@@ -1127,7 +1131,7 @@ mod tests {
     fn panel_leader_rejects_unreachable_control_characters_but_keeps_space() {
         for leader in [r"\t", r"\n", r"\r", r"\u001b"] {
             let outcome = parse_config(&format!(
-                "leader=\"{leader}\"\n[keybindings]\nfocus_left=['<leader>a']"
+                "leader=\"{leader}\"\n[keybindings]\nsend_to_agent=[]\nfocus_left=['<leader>a']"
             ));
             let config = outcome.config.unwrap();
             assert_eq!(config.leader, None);
@@ -1160,7 +1164,7 @@ mod tests {
     #[test]
     fn panel_keybindings_valid_overrides_are_recognized() {
         let outcome = parse_config(
-            "theme = 'light'\n[keybindings]\nfocus_left = ['Alt-Left', '<leader>a']\ntoggle_file_list = []\n",
+            "theme = 'light'\n[keybindings]\nsend_to_agent=[]\nfocus_left = ['Alt-Left', '<leader>a']\ntoggle_file_list = []\n",
         );
         assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
         assert_eq!(outcome.config.unwrap().theme.as_deref(), Some("light"));
@@ -2044,6 +2048,22 @@ mod tests {
             outcome.warnings[0],
             "Warning: Config key 'leader' must be a string; ignoring value"
         );
+    }
+
+    #[test]
+    fn agent_queue_config_parses_without_affecting_unrelated_settings() {
+        let outcome = parse_config(
+            "agent_queue_dir='/private/queue'\n[keybindings]\nsend_to_agent=['<leader>b']",
+        );
+        assert_eq!(
+            outcome.config.as_ref().unwrap().agent_queue_dir.as_deref(),
+            Some("/private/queue")
+        );
+        assert!(outcome.warnings.is_empty());
+        let outcome = parse_config("agent_queue_dir=42\nwrap=true");
+        assert_eq!(outcome.config.as_ref().unwrap().agent_queue_dir, None);
+        assert_eq!(outcome.config.as_ref().unwrap().wrap, Some(true));
+        assert_eq!(outcome.warnings.len(), 1);
     }
 
     // editor

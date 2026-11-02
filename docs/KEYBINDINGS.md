@@ -130,10 +130,11 @@ considers files that pass the active filters.
 
 ## Panel focus
 
-The focus/view and browser bindings below are defaults. Override them with
+The focus/view, browser, and agent-send bindings below are defaults. Override them with
 [`[keybindings]`](CONFIG.md#configurable-panel-keys); `?` shows the active bindings.
 Overrides apply only in normal review navigation, never in text-entry prompts or
-selectors. Other bindings in this table remain fixed.
+selectors, except for the browser action in the Pull Requests tab. Other bindings
+in this table remain fixed.
 
 | Key | Action |
 |-----|--------|
@@ -145,6 +146,7 @@ selectors. Other bindings in this table remain fixed.
 | `<leader>e` | Toggle file list visibility |
 | `<leader>d` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode) |
 | `<leader>o` | Open current PR in default browser (PR mode) |
+| `<leader>a` | Queue the open review Markdown for a local agent watcher (also `:send-agent`) |
 | `<leader>f` | Toggle current-file-only / continuous diff view (also `:focus` / `:f`) |
 | `<` / `>` | Narrow / widen the outer sidebar by 2 percentage points (no leader) |
 | `=` | Reset sidebar width to the configured preference (no leader) |
@@ -213,7 +215,23 @@ Shown below the file tree when local comments or visible remote PR threads exist
 | `A` | Edit comment at cursor with text cursor at end (vim mode only) |
 | `e` | Open focused file in `$EDITOR` |
 | `y` | Copy review to clipboard |
+| `<leader>a` | Queue the same full review export for a local agent watcher |
 | `Y` | Copy the comment at cursor to clipboard |
+
+`:send-agent` or `<leader>a` (default `;a`) queues exactly the same Markdown as
+`y`, without changing the clipboard. It works from any normal review pane, not
+the review target selector or a text-entry prompt. Rebind or unbind
+`keybindings.send_to_agent`; the command remains available. `<leader>s` still
+toggles the inline commit selector.
+
+Sending a changed review snapshots the full export, including comments sent
+previously. An unchanged export matching the last successfully queued batch in
+this tuicr process reports that batch ID instead of queueing a duplicate; use
+`:send-agent!` to resend explicitly. This guard resets when tuicr restarts.
+Comments are neither cleared nor marked submitted; saving and autosaving never
+send a batch. A queued status confirms local storage only. A separately installed
+watcher runs agents; tuicr itself does not launch them or select a worktree. See
+[Agent queue configuration](CONFIG.md#agent-queue).
 
 `e` opens the file at the cursor's line. Terminal editors (`vim`, `nvim`, `nano`, …)
 take over the screen and tuicr reloads the diff once they exit. Windowed editors
@@ -281,6 +299,8 @@ In command mode,
 | `:e` (`:reload`) | Reload diff files |
 | `:edit` | Open focused file in `$EDITOR` |
 | `:clip` (`:export`) | Copy review to clipboard |
+| `:send-agent` | Queue the open review’s full Markdown export; skip an unchanged repeat in this tuicr process |
+| `:send-agent!` | Explicitly resend the full export, bypassing the unchanged-batch guard |
 | `:copy-url` | Copy the open PR URL to clipboard (PR mode) |
 | `:summary` | Show all pending local-draft comments; `j`/`k` select and `Enter` jumps |
 | `:diff` | Toggle diff view (unified / side-by-side) |

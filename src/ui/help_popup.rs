@@ -184,6 +184,7 @@ fn help_lines(
     let toggle_single_file = bindings.labels(Action::ToggleSingleFileView, leader);
     let toggle_diff_view = bindings.labels(Action::ToggleDiffView, leader);
     let open_pr_in_browser = bindings.labels(Action::OpenPrInBrowser, leader);
+    let send_to_agent = bindings.labels(Action::SendToAgent, leader);
     let clear_include = bindings.labels(Action::FileTreeClearInclude, leader);
     let clear_exclude = bindings.labels(Action::FileTreeClearExclude, leader);
     let pr_authored_overridden = bindings.claims_pr_selector_key('a', leader);
@@ -735,6 +736,13 @@ fn help_lines(
         ]),
         Line::from(vec![
             Span::styled(
+                format!("  {send_to_agent:<10}"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Queue full review for agent (explicit send)"),
+        ]),
+        Line::from(vec![
+            Span::styled(
                 "  e         ",
                 Style::default().add_modifier(Modifier::BOLD),
             ),
@@ -853,6 +861,13 @@ fn help_lines(
                 Style::default().add_modifier(Modifier::BOLD),
             ),
             Span::raw("Copy review to clipboard"),
+        ]),
+        Line::from(vec![
+            Span::styled(
+                "  :send-agent[!] ",
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("Queue the same Markdown as y (! resends unchanged review)"),
         ]),
         Line::from(vec![
             Span::styled(
@@ -1139,6 +1154,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn send_agent_help_tracks_remapped_or_unbound_actions() {
+        for (values, label) in [("['<leader>b', 'F12']", "Space b / F12"), ("[]", "unbound")] {
+            let config = toml::from_str(&format!("[keybindings]\nsend_to_agent={values}")).unwrap();
+            let bindings = PanelBindings::from_config(&config).unwrap();
+            let lines = help_lines(' ', false, &bindings);
+            assert_description_columns_align(&lines);
+            let row = lines
+                .iter()
+                .find(|line| {
+                    line.spans.len() == 2
+                        && line.spans[1].content == "Queue full review for agent (explicit send)"
+                })
+                .unwrap();
+            assert_eq!(row.spans[0].content.trim(), label);
+            assert!(lines.iter().any(|line| {
+                line.spans
+                    .iter()
+                    .any(|span| span.content.contains(":send-agent[!]"))
+            }));
+        }
+    }
+
+    #[test]
     fn open_pr_browser_help_uses_active_binding_and_custom_leader() {
         for (config, leader, label) in [
             ("", ';', ";o"),
@@ -1229,6 +1267,7 @@ mod tests {
             r#"
             leader = ","
             [keybindings]
+            send_to_agent = []
             focus_left = ["Alt-Left", "<leader>a"]
             toggle_file_list = []
             toggle_single_file_view = ["<leader>v"]
@@ -1327,7 +1366,10 @@ mod tests {
 
     #[test]
     fn should_show_space_leader_consistently_for_default_and_configured_help() {
-        for overrides in ["", "\n[keybindings]\nfocus_left=['<leader>a']"] {
+        for overrides in [
+            "",
+            "\n[keybindings]\nsend_to_agent=[]\nfocus_left=['<leader>a']",
+        ] {
             let config: crate::config::AppConfig =
                 toml::from_str(&format!("leader=' '{overrides}")).unwrap();
             let bindings = PanelBindings::from_config(&config).unwrap();
@@ -1424,6 +1466,7 @@ mod tests {
             r#"
             leader = "界"
             [keybindings]
+            send_to_agent = []
             focus_left = ["Alt-Left", "Ctrl-Left", "<leader>界", "<leader>a"]
             toggle_file_list = []
         "#,

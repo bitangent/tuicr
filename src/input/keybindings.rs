@@ -73,6 +73,7 @@ pub enum Action {
     /// the `q` removal has had time to land.
     QuitHint,
     ExportToClipboard,
+    SendToAgent,
     /// Copy just the comment under the cursor (`Y`), not the whole review.
     CopyCommentAtCursor,
 

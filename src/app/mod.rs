@@ -1499,6 +1499,10 @@ pub struct App {
     pub path_filter: Option<String>,
     /// Resolved `[export]` settings shaping the generated review markdown.
     pub export: ExportConfig,
+    /// Optional configured spool directory; resolved only on explicit send.
+    pub agent_queue_dir: Option<PathBuf>,
+    /// In-process duplicate-send guard; never persisted or used to filter comments.
+    pub(crate) last_agent_batch: Option<([u8; 32], String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

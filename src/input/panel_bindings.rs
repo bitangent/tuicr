@@ -15,7 +15,7 @@ struct Binding {
 #[derive(Debug, Clone)]
 pub struct PanelBindings(Vec<(Action, Vec<Binding>)>);
 
-fn actions() -> [(&'static str, Action, char); 10] {
+fn actions() -> [(&'static str, Action, char); 11] {
     [
         ("focus_left", Action::FocusLeft, 'h'),
         ("focus_right", Action::FocusRight, 'l'),
@@ -25,6 +25,7 @@ fn actions() -> [(&'static str, Action, char); 10] {
         ("toggle_single_file_view", Action::ToggleSingleFileView, 'f'),
         ("toggle_diff_view", Action::ToggleDiffView, 'd'),
         ("open_pr_in_browser", Action::OpenPrInBrowser, 'o'),
+        ("send_to_agent", Action::SendToAgent, 'a'),
         ("file_tree_clear_include", Action::FileTreeClearInclude, 'I'),
         ("file_tree_clear_exclude", Action::FileTreeClearExclude, 'E'),
     ]
@@ -321,6 +322,33 @@ mod tests {
     }
 
     #[test]
+    fn send_agent_defaults_remapping_unbinding_and_conflict_validation() {
+        let map = PanelBindings::default();
+        assert_eq!(map.resolve(key('a'), true), Some(Action::SendToAgent));
+        assert_eq!(map.resolve(key('a'), false), None);
+        assert_eq!(map.labels(Action::SendToAgent, ';'), ";a");
+        let map =
+            PanelBindings::from_config(&config("[keybindings]\nsend_to_agent=['<leader>b','F12']"))
+                .unwrap();
+        assert_eq!(map.resolve(key('a'), true), None);
+        assert_eq!(map.resolve(key('b'), true), Some(Action::SendToAgent));
+        assert_eq!(map.labels(Action::SendToAgent, ','), ",b / F12");
+        let map = PanelBindings::from_config(&config("[keybindings]\nsend_to_agent=[]")).unwrap();
+        assert_eq!(map.labels(Action::SendToAgent, ';'), "unbound");
+        for binding in ["<leader>s", "<leader>h", "y", "Ctrl-c"] {
+            assert!(
+                PanelBindings::from_config(&config(&format!(
+                    "[keybindings]\nsend_to_agent=['{binding}']"
+                )))
+                .is_err()
+            );
+        }
+        assert!(
+            PanelBindings::from_config(&config("[keybindings]\nfocus_left=['<leader>a']")).is_err()
+        );
+    }
+
+    #[test]
     fn open_pr_browser_defaults_aliases_unbinding_and_conflicts() {
         let map = PanelBindings::default();
         assert_eq!(map.resolve(key('o'), true), Some(Action::OpenPrInBrowser));
@@ -458,7 +486,7 @@ mod tests {
     #[test]
     fn panel_replacements_aliases_and_unbinding_remove_old_defaults() {
         let map = PanelBindings::from_config(&config(
-            "[keybindings]\nfocus_left=['Alt-Left','<leader>a']\ntoggle_file_list=[]",
+            "[keybindings]\nsend_to_agent=[]\nfocus_left=['Alt-Left','<leader>a']\ntoggle_file_list=[]",
         ))
         .unwrap();
         assert_eq!(map.resolve(key('h'), true), None);
@@ -552,7 +580,7 @@ mod tests {
             Some(Action::FocusLeft)
         );
         assert_eq!(map.resolve(key('A'), true), Some(Action::FocusLeft));
-        assert_eq!(map.resolve(key('a'), true), None);
+        assert_eq!(map.resolve(key('a'), true), Some(Action::SendToAgent));
         assert_eq!(
             map.resolve(
                 KeyEvent::new(
@@ -589,7 +617,7 @@ mod tests {
     #[test]
     fn panel_space_leader_labels_and_changed_leader_conflicts() {
         let map = PanelBindings::from_config(&config(
-            "leader=' '\n[keybindings]\nfocus_left=['<leader>a']",
+            "leader=' '\n[keybindings]\nsend_to_agent=[]\nfocus_left=['<leader>a']",
         ))
         .unwrap();
         assert_eq!(map.labels(Action::FocusLeft, ' '), "Space a");

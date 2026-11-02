@@ -112,7 +112,9 @@ fn panel_bindings_are_scoped_out_of_every_other_mode_and_tree_text_drafts() {
     use crate::input::panel_bindings::PanelBindings;
     use crate::input::{map_file_tree_prompt_mode, map_key_to_action};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-    let cfg = toml::from_str("[keybindings]\ntoggle_diff_view = ['x', '<leader>a']").unwrap();
+    let cfg =
+        toml::from_str("[keybindings]\nsend_to_agent=[]\ntoggle_diff_view = ['x', '<leader>a']")
+            .unwrap();
     let mut app = app_with(vec![file("one.rs", 10)]);
     app.panel_bindings = PanelBindings::from_config(&cfg).unwrap();
     let direct = KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE);
@@ -173,7 +175,7 @@ fn filter_clear_bindings_only_resolve_in_tree_navigation() {
     use crate::input::PanelBindings;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     let mut app = app_with(vec![file("one.rs", 10)]);
-    let cfg = toml::from_str("[keybindings]\nfile_tree_clear_include=['x', '<leader>a']\nfile_tree_clear_exclude=['<leader>E']\ntoggle_file_list=['E']").unwrap();
+    let cfg = toml::from_str("[keybindings]\nsend_to_agent=[]\nfile_tree_clear_include=['x', '<leader>a']\nfile_tree_clear_exclude=['<leader>E']\ntoggle_file_list=['E']").unwrap();
     app.panel_bindings = PanelBindings::from_config(&cfg).unwrap();
     for panel in [
         FocusedPanel::Diff,
