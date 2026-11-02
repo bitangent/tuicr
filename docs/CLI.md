@@ -164,6 +164,8 @@ out to.
 |---|---|
 | `EDITOR` | Editor used by `e` and `:edit`. The config `editor` setting wins; `vi` is the last resort |
 | `XDG_CONFIG_HOME`, `HOME`, `APPDATA` | Locate the config directory. See [CONFIG.md](CONFIG.md) |
+| `TUICR_AGENT_QUEUE_DIR` | Absolute private queue directory for explicit `:send-agent` batches; overrides `agent_queue_dir`. See [Agent queue](CONFIG.md#agent-queue) |
+| `XDG_STATE_HOME`, `HOME`, `LOCALAPPDATA` | Locate the platform-default agent queue when no queue override is set. See [Agent queue](CONFIG.md#agent-queue) |
 | `TUICR_PROFILE` | Write a startup/render profile log. See below |
 | `TUICR_PROFILE_FILE` | Path for that log, overriding the default location |
 | `AZURE_DEVOPS_EXT_PAT`, `AZURE_DEVOPS_PAT` | Azure DevOps PAT. Checked in that order; without one tuicr falls back to `az rest`. See [AZURE.md](AZURE.md) |
@@ -199,6 +201,11 @@ nothing" apart from "quit without looking".
 `--stdout` prints the export markdown to stdout when the TUI exits, with the
 TUI itself rendered to `/dev/tty`. Combined with the two stderr markers, that
 keeps stdout clean for a pipe.
+
+`:send-agent` inside an open review writes the same export to the local
+[agent queue](CONFIG.md#agent-queue), independent of `--stdout`. It does not exit
+the TUI or start a subprocess. A separate watcher consumes queued batches; normal
+session saves and `tuicr review add` do not enqueue them.
 
 All three `tuicr review` subcommands print pretty JSON to stdout and nothing
 else. There is no `--json` flag because JSON is the only format. See

@@ -16,8 +16,8 @@
 - GitHub-style continuous diff in the terminal. Scroll through every changed file in one stream.
 - PR-style comments at the line, range, file, and review level. 
 - Review tracking at file or hunk granularity, persisted across sessions.
-- Three export targets: push a real review to GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, or Gerrit, copy
-  structured markdown to your clipboard, or pipe to stdout.
+- Push a real review to GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, or Gerrit, copy
+  structured markdown to your clipboard, pipe to stdout, or explicitly queue a batch for a local agent.
 - Works with git, jj, and mercurial. Reviews uncommitted changes, commit ranges, or any GitHub PR,
   GitLab MR, Gitea PR, Bitbucket PR, Azure DevOps PR, or Gerrit change.
 
@@ -208,6 +208,23 @@ I reviewed your code and have the following comments. Please address them.
 
 Paste it back to any coding agent (Claude, Codex, Cursor, etc).
 
+To automate that same handoff, use `:send-agent` or `<leader>a` (default `;a`)
+after finishing a batch in an open review. tuicr queues **exactly the Markdown
+that `y` exports**, including the configured commit/PR and session context; `y`
+itself is unchanged. A separately installed `tuicr-agent-runner` watcher consumes
+the local queue and launches a fresh `claude -p` for each batch, one at a time.
+Your Claude workflow still chooses the worktree from that context: tuicr does not
+resolve worktrees, launch Claude, or inject input into a running session.
+
+Sending does not clear comments or submit them to a forge. Saving or autosaving
+comments never sends a batch. Sending a changed review snapshots the **whole
+export**, including comments sent before; it is not a “new comments only” operation.
+Repeating Send with an unchanged export in the same tuicr process reports the
+previous batch instead of queueing it again; use `:send-agent!` to resend explicitly.
+A queued message confirms local storage, not agent completion; batches
+remain available when the watcher is stopped. Configure both programs to use the
+same [agent queue](docs/CONFIG.md#agent-queue).
+
 For an agent-driven workflow where your agent opens tuicr in a cmux, tmux, Zellij, or
 Herdr split pane, see [skills/tuicr/SKILL.md](skills/tuicr/SKILL.md).
 
@@ -278,7 +295,7 @@ store.add_comment(
 
 Path: `~/.config/tuicr/config.toml` on Linux/macOS, `%APPDATA%\tuicr\config.toml` on Windows.
 
-Panel focus, view toggles, and opening the current PR in a browser
+Panel focus, view toggles, opening the current PR in a browser, and sending an agent batch
 can be rebound with [`[keybindings]`](docs/CONFIG.md#configurable-panel-keys).
 Defaults stay unchanged; `?` shows your active bindings.
 
@@ -347,6 +364,7 @@ A first-session cheatsheet. Press `?` inside tuicr for the full reference.
 | `e` | Open focused file in `$EDITOR` (in PR review: the PR's revision, as a read-only copy when the checkout differs) |
 | `<leader>o` | Open reviewed PR or selected PR-list row in default browser |
 | `y` | Copy review to clipboard |
+| `<leader>a` / `:send-agent` | Queue the same review Markdown for a local agent watcher |
 | `:edit` | Open focused file in `$EDITOR` |
 | `:submit` | Push review to GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, or Gerrit |
 | `:theme` | Open a live-preview theme picker (`/` to filter); `:theme <name>` applies directly. Session-only; set `theme` in `config.toml` to keep it |

@@ -105,7 +105,7 @@ src/
 ├── input/
 │   ├── mod.rs
 │   ├── keybindings.rs   # Action enum, map_key_to_action() for each InputMode
-│   ├── panel_bindings.rs # Ten configurable normal-review panel/browser/filter-clear actions, parsing/validation/labels
+│   ├── panel_bindings.rs # Eleven configurable normal-review panel/browser/agent-send/filter-clear actions, parsing/validation/labels
 │   └── mode.rs          # InputMode enum definition (unused, defined in app.rs)
 │
 ├── persistence/
@@ -114,6 +114,7 @@ src/
 │
 ├── output/
 │   ├── mod.rs
+│   ├── agent_queue.rs   # Explicit immutable Markdown batches, private atomic local spool
 │   └── markdown.rs      # export_to_clipboard(): generate markdown, copy to clipboard
 │
 └── ui/
@@ -211,7 +212,7 @@ Repository-managed agent integrations:
 
 - All possible user actions (ScrollDown, NextFile, ToggleReviewed, AddLineComment, etc.)
 - `map_key_to_action(key, mode)` returns the appropriate Action
-- `App::panel_bindings` resolves only the ten configurable panel focus/view, browser, and filter-clear actions. Filter-clear actions remain tree-only. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route in `Normal` outside `file_filter.draft`; only `OpenPrInBrowser` also routes in the Pull Requests selector outside `pr_filter_draft`. Selector browser dispatch uses `pr_tab.cursor_pr()` (the filtered visible cursor), never the previous `diff_source`, and no-ops without a selected PR. Explicit browser bindings and the leader prefix take priority in that tab only. Help/footer labels must use this same resolved map, not hardcoded leader suffixes.
+- `App::panel_bindings` resolves only the eleven configurable panel focus/view, browser, agent-send, and filter-clear actions. Filter-clear actions remain tree-only. `[keybindings]` replacements are validated as one effective map; invalid overrides fall back together while other config remains intact. Route in `Normal` outside `file_filter.draft`; only `OpenPrInBrowser` also routes in the Pull Requests selector outside `pr_filter_draft`. Selector browser dispatch uses `pr_tab.cursor_pr()` (the filtered visible cursor), never the previous `diff_source`, and no-ops without a selected PR. Explicit browser bindings and the leader prefix take priority in that tab only. Help/footer labels must use this same resolved map, not hardcoded leader suffixes.
 - `map_global_key(key)` covers keys that mean the same thing in every mode (`Ctrl-l` → `Redraw`). `main.rs` checks it through `handler::handle_global_key` before the pending-prefix, vim-editor and per-mode maps, so these keys never reach a text buffer
 - `Redraw` (and `Event::Resize`) call `App::request_full_redraw`; the main loop takes the flag before the next draw and calls `TerminalSession::repaint_from_scratch` inside the synchronized update. Do not use ratatui's `Terminal::clear` there: it queries the cursor position, which times out under `--stdout`
 
@@ -227,6 +228,7 @@ Word emphasis (`--color-words`) is computed lazily for visible hunks in `app/col
 6. **Persistence**: active TUI sessions, comment submit, and `:w` save the session JSON to `~/.local/share/tuicr/reviews/`; library callers use `ReviewStore`. Open TUI sessions are also recorded in `active_sessions.json` beside `index.json` with pid, slug, path, and last-seen timestamp. TUI-created empty session files are deleted on normal exit if they still contain no comments and no reviewed files. `tuicr review delete`/`clearc`/`clear` likewise delete a session they empty, except while `active_sessions.json` lists a live owner: the open TUI keeps sharing the file with the agent.
 7. **Reload diff/session**: synchronous local reloads re-run VCS diff loading and `.tuicrignore` filtering. Full reloads persist resulting file hashes and invalidated review markers without saving unrelated dirty state; strict commit subsets remain live-only. Manual `:e` also reloads persisted comments before applying the diff.
 8. **Export**: `:clip` (alias `:export`) calls `export_to_clipboard()`, generating markdown and copying it to the clipboard (or stdout with `--stdout` flag)
+9. **Agent queue**: Explicit `:send-agent` / configurable `SendToAgent` (default `<leader>a`) calls the same `generate_export_content()` builder as `y`, then publishes an immutable v1 JSON envelope to the private local queue. The command requires an open review; the shortcut only routes in normal review navigation. `TUICR_AGENT_QUEUE_DIR` overrides `agent_queue_dir`, then platform defaults apply. `pending/<32-lowercase-hex-id>.json` holds `{version: 1, id, markdown}`; the filename and ID match, Markdown is at most 8 MiB, and the JSON envelope at most 16 MiB. Private temp-file writes are flushed before atomic publication. A separate `tuicr-agent-runner` watcher owns consumption and fresh serial `claude -p` invocations. tuicr does not launch agents, resolve worktrees, or enqueue on autosave; sending never changes comment lifecycle or clears comments. Each queued batch includes the whole current export, not only new comments. `App` remembers the last successful payload hash and batch ID in-process: an unchanged repeat reports the previous ID, while `:send-agent!` explicitly bypasses this guard. There is no persistent or cross-process deduplication.
 
 ### Important Implementation Details
 

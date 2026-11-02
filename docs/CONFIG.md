@@ -15,7 +15,7 @@ Local themes live in the sibling `themes/` directory:
 | Windows       | `%APPDATA%\tuicr\themes\`                                             |
 
 Unknown keys are ignored with a startup warning, except invalid `[keybindings]`
-settings reset all ten configurable bindings to defaults (see below).
+settings reset all eleven configurable bindings to defaults (see below).
 
 ## Full example
 
@@ -41,6 +41,7 @@ mouse = true
 mouse_scroll_lines = 3
 leader = ","
 editor = "nvim"
+# agent_queue_dir = "/absolute/private/agent-queue" # optional; see Agent queue below
 comment_vim = false
 q_quits = false
 comment_tab_width = 4
@@ -78,6 +79,7 @@ toggle_file_list = ["<leader>e"]
 toggle_single_file_view = ["<leader>f"]
 toggle_diff_view = ["<leader>d"]
 open_pr_in_browser = ["<leader>o"]
+send_to_agent = ["<leader>a"]
 file_tree_clear_include = ["I"]
 file_tree_clear_exclude = ["E"]
 
@@ -122,8 +124,9 @@ session_header = true
 | `mouse`                    | `true`       | Wheel scrolling, clicks, and drag-to-select.                                                                                                               |
 | `mouse_scroll_lines`       | `3`          | Lines scrolled per mouse wheel tick in the diff, file list, comment list, help, and summary views; the commit list moves its cursor this many rows. Must be between 1 and 100; other values are ignored with a startup warning. |
 | `leader`                   | `;`          | Single-character prefix for panel focus, sidebar toggles, and review-comment shortcuts. Space is supported; multi-character values and control characters (such as Tab or newline) are ignored with a startup warning. |
-| `keybindings` | (default bindings below) | Override ten panel-focus, view-toggle, browser, and filter-clear actions; see [Configurable panel keys](#configurable-panel-keys). |
+| `keybindings` | (default bindings below) | Override eleven panel-focus, view-toggle, browser, agent-send, and filter-clear actions; see [Configurable panel keys](#configurable-panel-keys). |
 | `editor`                   | `$EDITOR`    | Editor command for the `e` / `:edit` handoff, split with shell-like quoting rules (e.g. `"code -w"`). Falls back to `$EDITOR`, then `vi`. |
+| `agent_queue_dir` | (platform default) | Absolute private directory for explicit `:send-agent` batches. `TUICR_AGENT_QUEUE_DIR` overrides it; see [Agent queue](#agent-queue). |
 | `comment_vim`              | `false`      | Vim modal editing in the comment box; toggle at runtime with `:vim`. When off, default emacs/readline bindings.                                            |
 | `q_quits`                  | `false`      | Restore bare `q` as a quit key in review modes. `:q`, `ZZ`, and `ZQ` work regardless of this setting.                                                     |
 | `comment_tab_width`        | `4`          | Spaces inserted by Tab while typing in the vim comment box (Insert mode).                                                                                  |
@@ -149,7 +152,7 @@ With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 
 ## Configurable panel keys
 
-`[keybindings]` configures these ten actions at startup:
+`[keybindings]` configures these eleven actions at startup:
 
 | Action | Default | Behavior |
 | --- | --- | --- |
@@ -161,6 +164,7 @@ With `leader = " "`, help labels show the word `Space`, for example `Space c`.
 | `toggle_single_file_view` | `["<leader>f"]` | Switch between current-file-only and continuous diff view (also `:focus` / `:f`). |
 | `toggle_diff_view` | `["<leader>d"]` | Toggle unified / side-by-side diff view (also `:diff`; unavailable in pristine mode). |
 | `open_pr_in_browser` | `["<leader>o"]` | Open the reviewed PR/MR/change, or the PR under the cursor in the Pull Requests selector tab, in the default browser. |
+| `send_to_agent` | `["<leader>a"]` | Queue the open review’s full Markdown export for a local agent watcher (also `:send-agent`). |
 | `file_tree_clear_include` | `["I"]` | Clear the include filter (file tree only). |
 | `file_tree_clear_exclude` | `["E"]` | Clear the exclude filter (file tree only). |
 
@@ -180,6 +184,7 @@ toggle_file_list = ["<leader>t"]
 toggle_single_file_view = [] # :focus / :f still work
 toggle_diff_view = ["<leader>v", "F12"] # replace default; [] leaves :diff available
 open_pr_in_browser = ["<leader>b"] # replace default; [] disables browser shortcut
+send_to_agent = [] # disable shortcut; :send-agent still works
 ```
 
 Each string is one key/chord, or `<leader>` followed by one key/chord. Use a
@@ -194,7 +199,7 @@ character for other shifted characters (e.g. `!`, not `Shift-1`).
 Terminal-equivalent chords are checked for collisions; some terminals reserve or
 do not distinguish particular combinations, so choose bindings your terminal sends.
 
-These bindings apply during normal review navigation. Focus/view and browser actions work
+These bindings apply during normal review navigation. Focus/view, browser, and agent-send actions work
 across pane focus; filter-clear actions work only while the file tree is focused.
 `open_pr_in_browser` also works in the target selector's Pull Requests tab, using
 the PR under the cursor (no selection means no action). There, an explicit browser
@@ -207,10 +212,10 @@ the effective browser binding, including aliases and unbound actions.
 
 Unknown actions, malformed values, duplicate bindings, unreachable keys, or
 conflicts with fixed navigation/global keys produce a startup warning and reset
-**all ten actions** to their defaults; unrelated config settings remain in effect.
-The `<leader>d` and `<leader>o` defaults conflict with existing overrides using
-those bindings; remap or unbind `toggle_diff_view` or `open_pr_in_browser` to keep
-such overrides.
+**all eleven actions** to their defaults; unrelated config settings remain in effect.
+The `<leader>d`, `<leader>o`, and `<leader>a` defaults conflict with existing
+overrides using those bindings; remap or unbind `toggle_diff_view`,
+`open_pr_in_browser`, or `send_to_agent` to keep such overrides.
 Validation checks the final map, so swapping two actions' bindings is allowed.
 For example, set `file_tree_clear_exclude = ["<leader>E"]` (or `[]`) and
 `toggle_file_list = ["E"]` to free `E` for toggling the sidebar. Leaving the
@@ -220,6 +225,50 @@ Fixed normal-review bindings, the configured leader prefix, global `Ctrl-C` /
 `Ctrl-L`, and `<leader>c` / `<leader>s` / `<leader>n` cannot be reassigned here.
 Changing the config requires restarting tuicr. Arbitrary multi-key sequences,
 macros, mode-specific maps, and remapping other commands are not supported.
+
+## Agent queue
+
+`:send-agent` (default shortcut `<leader>a`) snapshots the same Markdown as `y`
+into a durable local queue. It requires an open review, not a row in the target
+selector. It does not launch an agent, clear comments, or mark them submitted.
+Saving comments, autosaving, and copying with `y` never enqueue anything. Sending
+a changed review queues the whole export, including previously sent comments.
+The current tuicr process remembers its last successfully queued payload: sending
+that unchanged export again reports the previous batch ID without queueing a
+duplicate. Use `:send-agent!` to explicitly resend it. This is only an in-process
+guard, not durable or cross-process deduplication; restarting tuicr forgets it.
+
+The queue location is selected in this order:
+
+1. `TUICR_AGENT_QUEUE_DIR` environment variable
+2. Top-level `agent_queue_dir` in `config.toml`
+3. The platform default below
+
+| Platform | Default queue directory |
+| --- | --- |
+| Linux | `$XDG_STATE_HOME/tuicr/agent-queue`, or `$HOME/.local/state/tuicr/agent-queue` when `XDG_STATE_HOME` is unset |
+| macOS | `$HOME/Library/Application Support/tuicr/agent-queue` |
+| Windows | `%LOCALAPPDATA%\tuicr\agent-queue` |
+
+Configured paths must be nonempty and absolute; `~` is not expanded. A set
+`XDG_STATE_HOME` must also be nonempty and absolute. Invalid paths or permissions
+produce a message when sending, rather than falling back to a different queue.
+On POSIX, queue directories are private (`0700`) and files are private (`0600`);
+existing non-private or symlink queue directories are rejected.
+
+A separately installed `tuicr-agent-runner` watcher processes the queue serially,
+launching a fresh `claude -p` with each Markdown payload. Configure the runner
+with the same `TUICR_AGENT_QUEUE_DIR` or its `--queue-dir` option if you customize
+the path; the runner does not read tuicr's config file. The agent's own workflow
+remains responsible for routing the review to the right worktree.
+
+A queued status means the batch was stored locally, not that an agent has run or
+finished it. Batches stay queued while the watcher is stopped. The immutable v1
+payload is `pending/<32-lowercase-hex-id>.json`, with JSON fields `version: 1`,
+`id` (matching the filename), and `markdown` (the unchanged export string).
+Markdown is limited to 8 MiB and the UTF-8 JSON envelope to 16 MiB. A private
+temporary file is flushed and atomically published so readers never see a
+partially written batch.
 
 ## Whitespace comparison
 
@@ -421,7 +470,7 @@ submissions.
 
 ## Export
 
-Settings under the `[export]` section control the Markdown that `y` and `:clip` copy to the clipboard, and that `--stdout` prints. They do not affect reviews you push to a forge with `:submit`; see [Forge](#forge) for those.
+Settings under the `[export]` section control the Markdown that `y` and `:clip` copy to the clipboard, that `--stdout` prints, and that `:send-agent` queues. They do not affect reviews you push to a forge with `:submit`; see [Forge](#forge) for those.
 
 Every key defaults to what tuicr has always emitted, so your exports stay byte-identical until you set one. Setting a string key to `""` omits that line along with the blank line after it:
 

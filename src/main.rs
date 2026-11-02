@@ -279,6 +279,7 @@ fn main() -> anyhow::Result<()> {
                 app.comment_vim_enabled = cfg.comment_vim.unwrap_or(false);
                 app.q_quits = cfg.q_quits.unwrap_or(false);
                 app.editor_override = cfg.editor.clone();
+                app.agent_queue_dir = cfg.agent_queue_dir.as_ref().map(std::path::PathBuf::from);
                 if let Some(w) = cfg.comment_tab_width {
                     app.comment_tab_width = w;
                 }
