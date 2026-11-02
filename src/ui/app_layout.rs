@@ -45,6 +45,9 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         || (app.searching_help() && app.overlay_return_mode == InputMode::CommitSelect);
     if selector_background {
         render_commit_select(frame, app);
+        if app.pr_view_picker.is_some() {
+            crate::ui::pr_view_picker::render_pr_view_picker(frame, app);
+        }
         let area = frame.area();
         let footer = Rect::new(
             area.x,

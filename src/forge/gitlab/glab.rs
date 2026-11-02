@@ -1309,6 +1309,37 @@ mod tests {
     }
 
     #[test]
+    fn named_pr_views_preserve_legacy_support_and_reject_extra_predicates() {
+        let repo = ForgeRepository::gitlab("gitlab.com", "owner", "repo");
+        let backend = GitLabGlabBackend::with_runner(
+            None,
+            RecordingRunner::new_with_responses(vec!["[]".to_string()]),
+        );
+        let mut view = crate::forge::traits::PullRequestView::from_scope(
+            PullRequestListScope::ReviewRequested,
+        );
+        view.name = "My review queue".to_string();
+        backend
+            .list_pull_requests_view(PullRequestListQuery::first_page(repo.clone(), 30), &view)
+            .unwrap();
+        assert!(
+            backend.runner.calls.borrow()[0]
+                .0
+                .contains(&"--reviewer=@me".to_string())
+        );
+        for draft in [Some(true), Some(false)] {
+            view.draft = draft;
+            let error = backend
+                .list_pull_requests_view(PullRequestListQuery::first_page(repo.clone(), 30), &view)
+                .unwrap_err();
+            assert!(matches!(error, TuicrError::UnsupportedOperation(_)));
+            assert!(error.to_string().contains("GitLab"));
+            assert!(error.to_string().contains("My review queue"));
+        }
+        assert_eq!(backend.runner.calls.borrow().len(), 1);
+    }
+
+    #[test]
     fn list_pull_requests_can_filter_to_review_requested() {
         let repo = ForgeRepository::gitlab("gitlab.com", "owner", "repo");
         let runner = RecordingRunner::new_with_responses(vec!["[]".to_string()]);

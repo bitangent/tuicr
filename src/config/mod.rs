@@ -7,6 +7,8 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use toml::Value;
 
+use crate::forge::traits::PullRequestView;
+
 /// Parsed `ignore_whitespace` setting.
 ///
 /// Booleans keep the legacy global modes. `"auto"` selects per-extension
@@ -166,6 +168,8 @@ pub struct AppConfig {
     pub theme_light: Option<String>,
     pub appearance: Option<String>,
     pub backend: Option<String>,
+    /// Named server-side PR views, appended to the built-in views.
+    pub pr_views: Vec<PullRequestView>,
     pub comment_types: Option<Vec<CommentTypeConfig>>,
     pub show_file_list: Option<bool>,
     /// Preferred outer sidebar width as a percentage (`1..=99`), default 20.
@@ -280,6 +284,7 @@ const KNOWN_KEYS: &[&str] = &[
     "theme_light",
     "appearance",
     "backend",
+    "pr_views",
     "comment_types",
     "show_file_list",
     "sidebar_width",
@@ -662,6 +667,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         theme_light: read_string(table, "theme_light", &mut warnings),
         appearance: read_string(table, "appearance", &mut warnings),
         backend: read_enum(table, "backend", &["libgit2", "cli"], &mut warnings),
+        pr_views: parse_pr_views(table.get("pr_views"), &mut warnings),
         comment_types: table
             .get("comment_types")
             .and_then(|v| parse_comment_types(v, &mut warnings)),
@@ -757,6 +763,71 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
         config: Some(config),
         warnings,
     })
+}
+
+/// Skip an invalid view as a unit: ignoring only a misspelled or mistyped
+/// predicate could silently fetch a broader set of PRs than requested.
+fn parse_pr_views(value: Option<&Value>, warnings: &mut Vec<String>) -> Vec<PullRequestView> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let Some(items) = value.as_array() else {
+        warnings.push(
+            "Warning: Config key 'pr_views' must be an array of tables; ignoring value".to_string(),
+        );
+        return Vec::new();
+    };
+
+    let mut views = Vec::new();
+    let mut names: std::collections::HashSet<String> = PullRequestView::builtins()
+        .iter()
+        .map(|view| view.name.to_lowercase())
+        .collect();
+    for (index, item) in items.iter().enumerate() {
+        let warning =
+            |reason: &str| format!("Warning: Invalid pr_views[{index}]: {reason}; ignoring entry");
+        let mut view = match item.clone().try_into::<PullRequestView>() {
+            Ok(view) => view,
+            Err(err) => {
+                warnings.push(warning(&err.to_string()));
+                continue;
+            }
+        };
+        view.name = view.name.trim().to_string();
+        if view.name.is_empty() || view.name.chars().any(char::is_control) {
+            warnings.push(warning(
+                "name must be nonempty and contain no control characters",
+            ));
+            continue;
+        }
+        let normalized_name = view.name.to_lowercase();
+        if names.contains(&normalized_name) {
+            warnings.push(warning(&format!(
+                "duplicate or reserved name '{}'",
+                view.name
+            )));
+            continue;
+        }
+        let mut invalid_account = false;
+        for (field, account) in [
+            ("author", &mut view.author),
+            ("review_requested", &mut view.review_requested),
+        ] {
+            if let Some(value) = account {
+                *value = value.trim().to_string();
+                if !PullRequestView::valid_account(value) {
+                    warnings.push(warning(&format!("{field} must be @me or an account login (letters, digits, interior hyphens, and underscores)")));
+                    invalid_account = true;
+                }
+            }
+        }
+        if invalid_account {
+            continue;
+        }
+        names.insert(normalized_name);
+        views.push(view);
+    }
+    views
 }
 
 /// Parse the `[forge]` section, returning `Some` with overridden values when
@@ -1049,6 +1120,162 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, toml_content).expect("failed to write config");
         load_config_from_path(&path).expect("config should parse")
+    }
+
+    #[test]
+    fn pr_views_default_to_no_custom_entries() {
+        assert!(AppConfig::default().pr_views.is_empty());
+        let outcome = parse_config("theme = 'light'\n");
+        assert!(outcome.config.unwrap().pr_views.is_empty());
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn pr_views_parse_typed_filters_and_preserve_order() {
+        let outcome = parse_config(
+            r#"
+            [[pr_views]]
+            name = " My drafts "
+            author = "@me"
+            draft = true
+
+            [[pr_views]]
+            name = "Ready for review"
+            author = "@me"
+            review_requested = "octocat"
+            draft = false
+
+            [[pr_views]]
+            name = "Any draft status"
+            author = "octocat"
+            "#,
+        );
+        assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+        let views = outcome.config.unwrap().pr_views;
+        assert_eq!(views.len(), 3);
+        assert_eq!(views[0].name, "My drafts");
+        assert_eq!(views[0].author.as_deref(), Some("@me"));
+        assert_eq!(views[0].draft, Some(true));
+        assert_eq!(views[0].review_requested, None);
+        assert_eq!(views[1].name, "Ready for review");
+        assert_eq!(views[1].review_requested.as_deref(), Some("octocat"));
+        assert_eq!(views[1].draft, Some(false));
+        assert_eq!(views[2].draft, None);
+    }
+
+    #[test]
+    fn pr_views_reject_bad_entries_without_losing_valid_siblings_or_config() {
+        let outcome = parse_config(
+            r#"
+            theme = "light"
+            mouse = false
+            pr_views = [
+                { name = "Valid", author = "@me" },
+                { name = "Typo", drfat = true },
+                { name = "Wrong type", draft = "true" },
+                { name = "", author = "@me" },
+                { name = " valid ", draft = false },
+                { name = "ALL OPEN", draft = false },
+                { name = "Empty author", author = "  " },
+                { name = "Wrong reviewer", review_requested = false },
+                { name = "Ready", draft = false },
+            ]
+            "#,
+        );
+        let config = outcome.config.unwrap();
+        assert_eq!(config.theme.as_deref(), Some("light"));
+        assert_eq!(config.mouse, Some(false));
+        assert_eq!(
+            config
+                .pr_views
+                .iter()
+                .map(|view| view.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Valid", "Ready"]
+        );
+        assert_eq!(outcome.warnings.len(), 7, "{:?}", outcome.warnings);
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("drfat"))
+        );
+        assert!(
+            outcome
+                .warnings
+                .iter()
+                .all(|warning| warning.contains("pr_views"))
+        );
+    }
+
+    #[test]
+    fn pr_views_validate_outer_shape_and_required_name() {
+        for invalid in ["true", "{}", "[42]", "[{}]", "[{ name = false }]"] {
+            let outcome = parse_config(&format!("theme = 'light'\npr_views = {invalid}\n"));
+            let config = outcome.config.unwrap();
+            assert_eq!(config.theme.as_deref(), Some("light"));
+            assert!(config.pr_views.is_empty());
+            assert_eq!(
+                outcome.warnings.len(),
+                1,
+                "{invalid}: {:?}",
+                outcome.warnings
+            );
+        }
+    }
+
+    #[test]
+    fn pr_views_reject_search_fragments_and_control_characters() {
+        for field in ["author", "review_requested"] {
+            for invalid in [
+                "",
+                "@someone",
+                "octocat draft:false",
+                "org/team",
+                "-octocat",
+                "octocat-",
+            ] {
+                let outcome = parse_config(&format!(
+                    "theme = 'light'\npr_views = [{{ name = 'Invalid', {field} = '{invalid}' }}]\n"
+                ));
+                assert!(
+                    outcome.config.unwrap().pr_views.is_empty(),
+                    "{field}: {invalid}"
+                );
+                assert_eq!(outcome.warnings.len(), 1);
+            }
+        }
+        let outcome = parse_config(r#"pr_views = [{ name = "line\nbreak", draft = true }]"#);
+        assert!(outcome.config.unwrap().pr_views.is_empty());
+        assert_eq!(outcome.warnings.len(), 1);
+    }
+
+    #[test]
+    fn pr_views_accept_empty_custom_list_and_trim_account_tokens() {
+        let empty = parse_config("pr_views = []");
+        assert!(empty.config.unwrap().pr_views.is_empty());
+        assert!(empty.warnings.is_empty());
+        let outcome = parse_config(
+            r#"pr_views = [{ name = "Mine", author = " @me ", review_requested = "octo-cat2" }]"#,
+        );
+        assert!(outcome.warnings.is_empty(), "{:?}", outcome.warnings);
+        let view = &outcome.config.unwrap().pr_views[0];
+        assert_eq!(view.author.as_deref(), Some("@me"));
+        assert_eq!(view.review_requested.as_deref(), Some("octo-cat2"));
+    }
+
+    #[test]
+    fn pr_views_rejected_entry_does_not_reserve_its_name() {
+        let outcome = parse_config(
+            r#"pr_views = [
+                { name = "Drafts", draft = "yes" },
+                { name = "Drafts", draft = true },
+            ]"#,
+        );
+        let views = outcome.config.unwrap().pr_views;
+        assert_eq!(views.len(), 1);
+        assert_eq!(views[0].draft, Some(true));
+        assert_eq!(outcome.warnings.len(), 1);
     }
 
     #[test]

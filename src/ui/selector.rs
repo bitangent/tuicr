@@ -49,6 +49,9 @@ pub(super) fn render_commit_select(frame: &mut Frame, app: &mut App) {
     if app.target_tab == TargetTab::Sessions {
         body_block = body_block.title(format!(" Reviews \u{00b7} {} ", app.sessions_tab.scope()));
     }
+    if app.target_tab == TargetTab::PullRequests {
+        body_block = body_block.title(format!(" View: {} ", app.pr_tab.view().view_name));
+    }
     let inner = body_block.inner(body_area);
     frame.render_widget(body_block, body_area);
 
@@ -195,11 +198,11 @@ fn pr_status_hint_span(app: &App, strip_bg: ratatui::style::Color) -> (Span<'sta
     (Span::styled(content, style), width)
 }
 
-fn pr_scope_prefix(scope: PullRequestListScope) -> &'static str {
+fn pr_scope_prefix(scope: Option<PullRequestListScope>) -> &'static str {
     match scope {
-        PullRequestListScope::Open => "",
-        PullRequestListScope::ReviewRequested => "requested · ",
-        PullRequestListScope::AuthoredByMe => "created by me · ",
+        Some(PullRequestListScope::Open) | None => "",
+        Some(PullRequestListScope::ReviewRequested) => "requested · ",
+        Some(PullRequestListScope::AuthoredByMe) => "created by me · ",
     }
 }
 
@@ -547,11 +550,10 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let mode_span = Span::styled(" SELECT ", styles::mode_style(theme));
 
-    let hints =
-        if app.message.is_some() {
-            String::new()
-        } else {
-            match app.target_tab {
+    let hints = if app.message.is_some() {
+        String::new()
+    } else {
+        match app.target_tab {
             TargetTab::Local => {
                 "   j/k navigate \u{00b7} space range \u{00b7} \u{21b5} confirm \u{00b7} :q quit"
                     .to_string()
@@ -560,12 +562,16 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
                 let browser = app
                     .panel_bindings
                     .labels(Action::OpenPrInBrowser, app.leader_key);
-                let scope = app.pr_tab.scope();
+                let active_view = app.pr_tab.active_view();
                 let mut scope_hint = String::new();
                 for (key, label) in [
                     (
                         'a',
-                        if scope == PullRequestListScope::AuthoredByMe {
+                        if active_view
+                            == Some(&crate::forge::traits::PullRequestView::from_scope(
+                                PullRequestListScope::AuthoredByMe,
+                            ))
+                        {
                             "all open"
                         } else {
                             "mine"
@@ -573,7 +579,11 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
                     ),
                     (
                         'r',
-                        if scope == PullRequestListScope::ReviewRequested {
+                        if active_view
+                            == Some(&crate::forge::traits::PullRequestView::from_scope(
+                                PullRequestListScope::ReviewRequested,
+                            ))
+                        {
                             "all open"
                         } else {
                             "requested"
@@ -582,11 +592,22 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
                 ] {
                     // An explicit browser remap (or the leader itself) wins
                     // over a scope key. Do not advertise the displaced action.
-                    if !app.panel_bindings.claims_pr_selector_key(key, app.leader_key) {
+                    if !app
+                        .panel_bindings
+                        .claims_pr_selector_key(key, app.leader_key)
+                    {
                         scope_hint.push_str(&format!(" · {key} {label}"));
                     }
                 }
-                format!(" j/k · ↵ · {browser} browser{scope_hint} · / local filter · esc")
+                let views = if app
+                    .panel_bindings
+                    .claims_pr_selector_key('v', app.leader_key)
+                {
+                    ""
+                } else {
+                    " · v views"
+                };
+                format!(" {browser} browser{views}{scope_hint} · / local filter · esc")
             }
             TargetTab::Sessions => {
                 let empty_hint = if app.sessions_tab.show_empty() {
@@ -597,7 +618,7 @@ fn render_target_selector_footer(frame: &mut Frame, app: &App, area: Rect) {
                 format!("   j/k navigate · ↵ resume · dd delete · {empty_hint} · esc back")
             }
         }
-        };
+    };
     let hints_span = Span::styled(hints, Style::default().fg(theme.fg_secondary));
 
     let selected_count = match app.commit_selection_range {
@@ -1119,6 +1140,29 @@ mod selector_render_snapshot_tests {
     }
 
     #[test]
+    fn named_alias_footer_matches_builtin_shortcut_behavior() {
+        for scope in [
+            PullRequestListScope::AuthoredByMe,
+            PullRequestListScope::ReviewRequested,
+        ] {
+            let mut app = make_app(vec![]);
+            app.pr_tab = PullRequestsTab::new(Some(repo()));
+            app.target_tab = crate::app::TargetTab::PullRequests;
+            let mut custom = crate::forge::traits::PullRequestView::from_scope(scope);
+            custom.name = "Personal alias".into();
+            app.pr_tab.select_view_and_start_reload(custom);
+            let buffer = draw_at(&mut app, 80, 24);
+            let footer = row_text(&buffer, 23);
+            assert!(footer.contains("a mine"), "{footer:?}");
+            assert!(footer.contains("r requested"), "{footer:?}");
+            assert!(footer.contains("v views"), "{footer:?}");
+            assert!(row_text(&buffer, 1).contains("View: Personal alias"));
+            app.pr_tab.toggle_scope_and_start_reload(scope);
+            assert_eq!(app.pr_tab.view().view_name, scope.label());
+        }
+    }
+
+    #[test]
     fn should_show_both_scope_keys_and_local_filter_at_80_columns() {
         let mut app = make_app(vec![]);
         app.pr_tab = PullRequestsTab::new(Some(repo()));
@@ -1130,7 +1174,7 @@ mod selector_render_snapshot_tests {
         ] {
             app.pr_tab = PullRequestsTab::Loading {
                 repository: repo(),
-                scope,
+                selected_view: crate::forge::traits::PullRequestView::from_scope(scope),
             };
             let buffer = draw_at(&mut app, 80, 24);
             let footer = row_text(&buffer, 23);

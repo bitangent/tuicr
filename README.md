@@ -249,6 +249,12 @@ so collaborative tools can add comments immediately. Empty auto-created session
 files are removed when the TUI exits. `tuicr review list` marks currently open
 TUI sessions with `"active": true`.
 
+Inside the TUI, press `v` in the **Pull Requests** tab (or `:pr-views`) to choose
+from built-in and [config-defined PR views](docs/CONFIG.md#pull-request-views).
+Type to filter view names, use arrows or Ctrl-n/Ctrl-p to move, Enter to select,
+and Esc to cancel. Views filter open PRs on the server before pagination;
+`/` still filters only the locally loaded rows.
+
 Inside the TUI, the review target selector's **Pull Requests** tab supports
 `a` for **Created by me** (GitHub only) and `r` for **Review requested**. These
 server-side scopes are mutually exclusive; pressing the active key again returns

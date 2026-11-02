@@ -311,6 +311,7 @@ In command mode,
 | `:vim` (`:set vim!`) / `:novim` (`:set novim`) / `:set vim` | Toggle / disable / enable vim modal editing in the comment box (overrides `comment_vim`) |
 | `:commits` (`:targets`) | Select commits to review |
 | `:prs` | Open the review target selector on Pull Requests |
+| `:pr-views` | Choose a configured PR view while in the Pull Requests selector |
 | `:sessions` (`:reviews`) | Resume a saved review for this checkout |
 | `:submit` | Open submit picker (Comment / Approve / Request changes / Draft) |
 | `:submit comment` | Submit a Comment review |
@@ -387,6 +388,7 @@ comments that the author publishes from Gerrit's Reply UI.
 | `Enter` | Confirm local commit range, open PR, load more PRs, or resume a saved review |
 | `<leader>o` | Open the PR under the cursor in the default browser (Pull Requests tab) |
 | `/` | Filter currently loaded PR rows locally within the active scope |
+| `v` | In Pull Requests tab, open the configured PR views picker (also `:pr-views`) |
 | `r` | In Pull Requests tab, toggle all open PRs / PRs requesting your review |
 | `a` | In Pull Requests tab, toggle all open PRs / PRs created by you (GitHub only); in Sessions tab, show or hide saved reviews holding no progress |
 | `dd` | In Sessions tab, delete the saved review under the cursor (asks to confirm) |
@@ -401,8 +403,17 @@ existing keys, including Local's Space selection with a Space leader. `Esc`
 cancels a pending leader prefix without leaving the selector; an unrecognized
 suffix falls through to normal navigation.
 
+`v` opens a small [configured PR views](CONFIG.md#pull-request-views) picker.
+Type to filter names (including `j`/`k`), use Up/Down or Ctrl-p/Ctrl-n to move,
+Enter to select, and Esc to cancel unchanged. `Ctrl-u` clears the search.
+Selecting a view refetches page one with its server-side filters and clears the
+local `/` filter; the active name appears in the list border. The picker does
+not edit config. Browser remaps and the configured leader take priority over
+`v`; use `:pr-views` when they claim it.
+
 The Pull Requests tab starts with all open PRs. `a` selects **Created by me** and
-`r` selects **Review requested**; these scopes are mutually exclusive. Press the
+`r` selects **Review requested**; these built-ins replace the current view rather
+than retaining any custom predicates. Press the
 active scope's key again to return to all open PRs, or the other key to switch
 scopes. Each change refetches page 1 and clears the local filter and selection.
 Created by me uses GitHub's authenticated user (`gh pr list --author @me`),

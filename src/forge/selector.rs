@@ -6,7 +6,9 @@
 //! from this state; no I/O happens here.
 #![allow(dead_code)]
 
-use crate::forge::traits::{ForgeRepository, PullRequestListScope, PullRequestSummary};
+use crate::forge::traits::{
+    ForgeRepository, PullRequestListScope, PullRequestSummary, PullRequestView,
+};
 
 pub const PR_PAGE_SIZE: usize = 30;
 
@@ -24,11 +26,11 @@ pub enum PullRequestsTab {
     },
     Idle {
         repository: ForgeRepository,
-        scope: PullRequestListScope,
+        selected_view: PullRequestView,
     },
     Loading {
         repository: ForgeRepository,
-        scope: PullRequestListScope,
+        selected_view: PullRequestView,
     },
     Loaded {
         repository: ForgeRepository,
@@ -36,13 +38,13 @@ pub enum PullRequestsTab {
         has_more: bool,
         loading_more: bool,
         filter: String,
-        scope: PullRequestListScope,
+        selected_view: PullRequestView,
         cursor: usize,
         scroll_offset: usize,
     },
     Error {
         repository: Option<ForgeRepository>,
-        scope: PullRequestListScope,
+        selected_view: PullRequestView,
         message: String,
     },
 }
@@ -59,7 +61,8 @@ pub struct PrTabView<'a> {
     /// after the data rows.
     pub has_load_more: bool,
     pub filter: &'a str,
-    pub scope: PullRequestListScope,
+    pub scope: Option<PullRequestListScope>,
+    pub view_name: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,7 +85,7 @@ impl PullRequestsTab {
         match repository {
             Some(repo) => PullRequestsTab::Idle {
                 repository: repo,
-                scope: PullRequestListScope::Open,
+                selected_view: PullRequestView::from_scope(PullRequestListScope::Open),
             },
             None => PullRequestsTab::Disabled {
                 // Six forges no longer fit the tab strip at 80 columns, and
@@ -103,14 +106,18 @@ impl PullRequestsTab {
         }
     }
 
-    pub fn scope(&self) -> PullRequestListScope {
+    pub fn active_view(&self) -> Option<&PullRequestView> {
         match self {
-            PullRequestsTab::Idle { scope, .. }
-            | PullRequestsTab::Loading { scope, .. }
-            | PullRequestsTab::Loaded { scope, .. }
-            | PullRequestsTab::Error { scope, .. } => *scope,
-            PullRequestsTab::Disabled { .. } => PullRequestListScope::Open,
+            Self::Idle { selected_view, .. }
+            | Self::Loading { selected_view, .. }
+            | Self::Loaded { selected_view, .. }
+            | Self::Error { selected_view, .. } => Some(selected_view),
+            Self::Disabled { .. } => None,
         }
+    }
+
+    pub fn scope(&self) -> Option<PullRequestListScope> {
+        self.active_view().and_then(PullRequestView::scope)
     }
 
     /// True when the tab is currently waiting on a network call.
@@ -132,52 +139,68 @@ impl PullRequestsTab {
     }
 
     /// Begin the initial fetch. Only meaningful from `Idle`.
-    pub fn start_initial_load(&mut self) -> Option<(ForgeRepository, PullRequestListScope)> {
-        if let PullRequestsTab::Idle { repository, scope } = self {
+    pub fn start_initial_load(&mut self) -> Option<(ForgeRepository, PullRequestView)> {
+        if let PullRequestsTab::Idle {
+            repository,
+            selected_view,
+        } = self
+        {
             let repo = repository.clone();
-            let scope = *scope;
+            let selected_view = selected_view.clone();
             *self = PullRequestsTab::Loading {
                 repository: repo.clone(),
-                scope,
+                selected_view: selected_view.clone(),
             };
-            Some((repo, scope))
+            Some((repo, selected_view))
         } else {
             None
         }
     }
 
     /// Begin a "load more" fetch. Only meaningful when `Loaded` with `has_more`.
-    pub fn start_load_more(&mut self) -> Option<(ForgeRepository, PullRequestListScope, usize)> {
+    pub fn start_load_more(&mut self) -> Option<(ForgeRepository, PullRequestView, usize)> {
         if let PullRequestsTab::Loaded {
             repository,
             rows,
             has_more,
             loading_more,
-            scope,
+            selected_view,
             ..
         } = self
             && *has_more
             && !*loading_more
         {
             *loading_more = true;
-            return Some((repository.clone(), *scope, rows.len()));
+            return Some((repository.clone(), selected_view.clone(), rows.len()));
         }
         None
     }
 
-    /// Toggle a server-side scope against all open PRs,
-    /// then transition to `Loading` so the caller can refetch page 1.
+    /// Select a named server-side view and refetch from page one.
+    pub fn select_view_and_start_reload(
+        &mut self,
+        selected_view: PullRequestView,
+    ) -> Option<(ForgeRepository, PullRequestView)> {
+        let repository = self.repository()?.clone();
+        *self = Self::Loading {
+            repository: repository.clone(),
+            selected_view: selected_view.clone(),
+        };
+        Some((repository, selected_view))
+    }
+
+    /// Legacy shortcuts select their built-in view, never retaining custom predicates.
     pub fn toggle_scope_and_start_reload(
         &mut self,
         target: PullRequestListScope,
-    ) -> Option<(ForgeRepository, PullRequestListScope)> {
-        let repository = self.repository()?.clone();
-        let next_scope = self.scope().toggled(target);
-        *self = PullRequestsTab::Loading {
-            repository: repository.clone(),
-            scope: next_scope,
+    ) -> Option<(ForgeRepository, PullRequestView)> {
+        let target = PullRequestView::from_scope(target);
+        let next = if self.active_view() == Some(&target) {
+            PullRequestView::from_scope(PullRequestListScope::Open)
+        } else {
+            target
         };
-        Some((repository, next_scope))
+        self.select_view_and_start_reload(next)
     }
 
     /// Promote the in-flight `Loading` tab to a (possibly different)
@@ -195,8 +218,11 @@ impl PullRequestsTab {
 
     /// Apply the result of the initial load.
     pub fn apply_initial_load(&mut self, result: Result<(Vec<PullRequestSummary>, bool), String>) {
-        let (repository, scope) = match self {
-            PullRequestsTab::Loading { repository, scope } => (repository.clone(), *scope),
+        let (repository, selected_view) = match self {
+            PullRequestsTab::Loading {
+                repository,
+                selected_view,
+            } => (repository.clone(), selected_view.clone()),
             _ => return,
         };
         match result {
@@ -207,7 +233,7 @@ impl PullRequestsTab {
                     has_more,
                     loading_more: false,
                     filter: String::new(),
-                    scope,
+                    selected_view,
                     cursor: 0,
                     scroll_offset: 0,
                 };
@@ -215,7 +241,7 @@ impl PullRequestsTab {
             Err(message) => {
                 *self = PullRequestsTab::Error {
                     repository: Some(repository),
-                    scope,
+                    selected_view,
                     message,
                 };
             }
@@ -229,7 +255,7 @@ impl PullRequestsTab {
             rows,
             has_more,
             loading_more,
-            scope,
+            selected_view,
             ..
         } = self
         {
@@ -244,10 +270,10 @@ impl PullRequestsTab {
                     // surface the message and clear the busy flag so the user
                     // can try again.
                     let repository = Some(repository.clone());
-                    let scope = *scope;
+                    let selected_view = selected_view.clone();
                     *self = PullRequestsTab::Error {
                         repository,
-                        scope,
+                        selected_view,
                         message,
                     };
                 }
@@ -392,32 +418,35 @@ impl PullRequestsTab {
                 scroll_offset: 0,
                 has_load_more: false,
                 filter: "",
-                scope: PullRequestListScope::Open,
+                scope: Some(PullRequestListScope::Open),
+                view_name: "All open",
             },
-            PullRequestsTab::Idle { scope, .. } => PrTabView {
+            PullRequestsTab::Idle { selected_view, .. } => PrTabView {
                 status: PrTabStatus::Idle,
                 rows: Vec::new(),
                 cursor: 0,
                 scroll_offset: 0,
                 has_load_more: false,
                 filter: "",
-                scope: *scope,
+                scope: selected_view.scope(),
+                view_name: &selected_view.name,
             },
-            PullRequestsTab::Loading { scope, .. } => PrTabView {
+            PullRequestsTab::Loading { selected_view, .. } => PrTabView {
                 status: PrTabStatus::Loading,
                 rows: Vec::new(),
                 cursor: 0,
                 scroll_offset: 0,
                 has_load_more: false,
                 filter: "",
-                scope: *scope,
+                scope: selected_view.scope(),
+                view_name: &selected_view.name,
             },
             PullRequestsTab::Loaded {
                 rows,
                 has_more,
                 loading_more,
                 filter,
-                scope,
+                selected_view,
                 cursor,
                 scroll_offset,
                 ..
@@ -439,17 +468,23 @@ impl PullRequestsTab {
                     scroll_offset: *scroll_offset,
                     has_load_more: *has_more && filter.is_empty(),
                     filter: filter.as_str(),
-                    scope: *scope,
+                    scope: selected_view.scope(),
+                    view_name: &selected_view.name,
                 }
             }
-            PullRequestsTab::Error { message, scope, .. } => PrTabView {
+            PullRequestsTab::Error {
+                message,
+                selected_view,
+                ..
+            } => PrTabView {
                 status: PrTabStatus::Error(message.as_str()),
                 rows: Vec::new(),
                 cursor: 0,
                 scroll_offset: 0,
                 has_load_more: false,
                 filter: "",
-                scope: *scope,
+                scope: selected_view.scope(),
+                view_name: &selected_view.name,
             },
         }
     }
@@ -542,7 +577,13 @@ mod tests {
         // when
         let requested = tab.start_initial_load();
         // then
-        assert_eq!(requested.unwrap(), (repo(), PullRequestListScope::Open));
+        assert_eq!(
+            requested.unwrap(),
+            (
+                repo(),
+                PullRequestView::from_scope(PullRequestListScope::Open)
+            )
+        );
         assert!(matches!(tab, PullRequestsTab::Loading { .. }));
         assert!(tab.is_loading());
     }
@@ -727,10 +768,16 @@ mod tests {
         // then
         assert_eq!(
             request.unwrap(),
-            (repo(), PullRequestListScope::ReviewRequested)
+            (
+                repo(),
+                PullRequestView::from_scope(PullRequestListScope::ReviewRequested)
+            )
         );
         assert!(matches!(tab.view().status, PrTabStatus::Loading));
-        assert_eq!(tab.view().scope, PullRequestListScope::ReviewRequested);
+        assert_eq!(
+            tab.view().scope,
+            Some(PullRequestListScope::ReviewRequested)
+        );
     }
 
     #[test]
@@ -744,7 +791,11 @@ mod tests {
         // then
         assert_eq!(
             request.unwrap(),
-            (repo(), PullRequestListScope::ReviewRequested, 1)
+            (
+                repo(),
+                PullRequestView::from_scope(PullRequestListScope::ReviewRequested),
+                1
+            )
         );
     }
     #[test]
@@ -758,17 +809,17 @@ mod tests {
                     has_more: true,
                     loading_more: true,
                     filter: "a".into(),
-                    scope: initial,
+                    selected_view: PullRequestView::from_scope(initial),
                     cursor: 1,
                     scroll_offset: 1,
                 };
                 let expected = if initial == target { Open } else { target };
                 assert_eq!(
                     tab.toggle_scope_and_start_reload(target),
-                    Some((repo(), expected))
+                    Some((repo(), PullRequestView::from_scope(expected)))
                 );
                 let view = tab.view();
-                assert_eq!(view.scope, expected);
+                assert_eq!(view.scope, Some(expected));
                 assert!(view.rows.is_empty());
                 assert_eq!(view.filter, "");
                 assert_eq!(view.cursor, 0);
@@ -776,8 +827,43 @@ mod tests {
                 assert!(!view.has_load_more);
                 assert!(matches!(view.status, PrTabStatus::Loading));
                 tab.apply_initial_load(Ok((vec![pr(2, "new", "me", "h", "m")], true)));
-                assert_eq!(tab.start_load_more(), Some((repo(), expected, 1)));
+                assert_eq!(
+                    tab.start_load_more(),
+                    Some((repo(), PullRequestView::from_scope(expected), 1))
+                );
             }
         }
+    }
+    #[test]
+    fn named_view_carries_all_predicates_through_paging_and_shortcuts_reset_them() {
+        let mut tab = PullRequestsTab::new(Some(repo()));
+        let mut custom = PullRequestView::from_scope(PullRequestListScope::AuthoredByMe);
+        custom.name = "My drafts".into();
+        custom.draft = Some(true);
+        assert_eq!(
+            tab.select_view_and_start_reload(custom.clone()),
+            Some((repo(), custom.clone()))
+        );
+        tab.apply_initial_load(Ok((
+            vec![pr(1, "a", "me", "h", "m"), pr(2, "b", "me", "h", "m")],
+            true,
+        )));
+        tab.set_filter("a".into());
+        assert_eq!(tab.view().rows.len(), 1);
+        assert_eq!(tab.start_load_more(), Some((repo(), custom.clone(), 2)));
+        assert_eq!(tab.active_view(), Some(&custom));
+        assert_eq!(
+            tab.toggle_scope_and_start_reload(PullRequestListScope::AuthoredByMe),
+            Some((
+                repo(),
+                PullRequestView::from_scope(PullRequestListScope::AuthoredByMe)
+            ))
+        );
+        assert_eq!(tab.view().view_name, "Created by me");
+        assert_eq!(tab.view().filter, "");
+        tab.apply_initial_load(Err("offline".into()));
+        assert_eq!(tab.view().view_name, "Created by me");
+        tab.toggle_scope_and_start_reload(PullRequestListScope::AuthoredByMe);
+        assert_eq!(tab.view().view_name, "All open");
     }
 }

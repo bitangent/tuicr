@@ -15,7 +15,9 @@ Local themes live in the sibling `themes/` directory:
 | Windows       | `%APPDATA%\tuicr\themes\`                                             |
 
 Unknown keys are ignored with a startup warning, except invalid `[keybindings]`
-settings reset all eleven configurable bindings to defaults (see below).
+settings reset all eleven configurable bindings to defaults (see below). An invalid
+`[[pr_views]]` entry is skipped as a whole so a bad filter cannot silently broaden
+the requested view; other views and settings are preserved.
 
 ## Full example
 
@@ -69,6 +71,16 @@ comment_types = [
   { id = "praise", definition = "positive feedback" },
   { id = "nit", label = "nitpick", definition = "small optional tweaks", color = "#d19a66" },
 ]
+
+[[pr_views]]
+name = "My drafts"
+author = "@me"
+draft = true
+
+[[pr_views]]
+name = "Ready for review"
+author = "@me"
+draft = false
 
 [keybindings]
 focus_left = ["<leader>h"]
@@ -146,9 +158,62 @@ session_header = true
 | `diff_watch_interval_ms`   | `0`          | Poll interval for re-reading the local diff so uncommitted changes show without `:e`. The same tick refreshes the commit pane, including the "Staged changes" and "Unstaged changes" rows. A commit-range review, from `-r` or picked in the commit selector, keeps its range in the pane. With `-w` it refreshes only those two rows. Without it the pane never gains them. `0` (default) disables it. Ignored for PR and `--all-files` reviews. |
 | `backend`                  | `libgit2`    | Git backend: `libgit2` or `cli`. Sparse-checkout repos auto-route to `cli`.                                                                                |
 | `comment_types`            | (none)       | Comment categories. Untyped by default. See [Comment types](#comment-types).                                                                               |
+| `pr_views` | `[]` | Additional named server-side PR views. See [Pull request views](#pull-request-views). |
 | `export_legend`            | `true`       | Include the `Comment types:` legend in the exported review. Superseded by `legend` under [Export](#export).                                                |
 
 With `leader = " "`, help labels show the word `Space`, for example `Space c`.
+
+## Pull request views
+
+The Pull Requests selector always includes **All open**, **Created by me**, and
+**Review requested**. Add named views in `config.toml` to combine common filters:
+
+```toml
+[[pr_views]]
+name = "My drafts"
+author = "@me"
+draft = true
+
+[[pr_views]]
+name = "Ready for review"
+author = "@me"
+draft = false
+
+[[pr_views]]
+name = "Octocat requests my review"
+author = "octocat"
+review_requested = "@me"
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | Yes | Unique, nonempty display name. Names are case-insensitively unique; the three built-in names are reserved. |
+| `author` | No | Author account login, or `"@me"` for the authenticated user. |
+| `review_requested` | No | Account whose review is requested, or `"@me"`. |
+| `draft` | No | `true` for drafts only; `false` for non-drafts only. Omit to include both. |
+
+Account fields accept `@me` or a login containing ASCII letters, digits, and
+interior hyphens or underscores—not arbitrary search syntax or team names. All specified fields
+are combined with AND. Views always query open pull requests in the selector's
+repository, and their filters are applied server-side **before pagination**.
+GitHub supports all these filters through `gh pr list`. Other forges retain their
+existing All open / Created by me / Review requested capabilities; a view needing
+unsupported filters reports an error rather than silently returning unfiltered PRs.
+
+Press `v` (or run `:pr-views`) in the Pull Requests tab to open the built-in
+searchable picker. Type to narrow view names (case-insensitive substring matching), use Up/Down or Ctrl-p/Ctrl-n
+to move, and press Enter to select. Escape closes the picker without changing the
+view or fetching a new list. Browser remaps and the leader prefix retain priority
+over `v`; `:pr-views` remains available. No `fzf` installation is required. Selecting a view
+fetches its first page, clears the local row filter, and shows the view's name.
+`a` and `r` select the corresponding built-in view; pressing the same shortcut again
+returns to All open. They replace, rather than combine with, a custom view.
+`/` remains a local substring filter of already-loaded rows within the active view.
+
+Views are configured only in the file; the picker does not edit or persist them.
+Custom entries are appended in config order. Empty or duplicate names, unknown
+fields, invalid account values, and incorrect field types produce startup warnings
+and skip only the invalid entry. `pr_views = []` keeps just the built-ins.
 
 ## Configurable panel keys
 
