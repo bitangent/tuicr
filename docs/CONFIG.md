@@ -31,6 +31,7 @@ commit_order = "descending"
 initial_commit_selection = "all"
 show_file_list = true
 sidebar_width = 20            # preferred sidebar width as a percentage (1–99)
+pr_author_width = 12          # PR picker author column width in terminal cells
 compact_folders = false
 show_pr_checks = false
 show_pr_comments = true
@@ -115,6 +116,7 @@ session_header = true
 | `ignore_whitespace_overrides` | (none)    | Table of extension-to-boolean overrides, used only with `ignore_whitespace = "auto"`. `true` ignores whitespace; `false` compares normally. |
 | `show_file_list`           | `true`       | Whether the file list panel is visible on startup. Toggle with `<leader>e`.                                                                                |
 | `sidebar_width` | `20` | Preferred outer sidebar width as an integer percentage (`1`–`99`). Invalid values warn and use the default. Resize with bare `<` / `>` or drag the sidebar/diff boundary; `=` resets to this preference. Width is clamped to keep both panes usable when space allows. Session changes never rewrite config or persist in a review. |
+| `pr_author_width` | `12` | Author column width in terminal cells in the Pull Requests picker. Must be an integer from `1` to `65535`; invalid values warn and use the default. Long author names are truncated with dots, and shorter names are padded. Titles use the remaining width; author/date/draft metadata is hidden when it would leave fewer than 20 title cells. Does not change local commit author columns. |
 | `compact_folders` | `false` | Join single-child directory chains into one file-tree row. Restart tuicr after changing this setting. |
 | `show_pr_checks`           | `false`      | Whether PR CI checks are fetched and shown. Set to `true` to include GitHub check rollups.                                                           |
 | `show_pr_comments`         | `true`       | Whether PR conversation comments are fetched and shown. Set to `false` to skip PR comments.                                                         |

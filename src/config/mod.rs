@@ -59,6 +59,9 @@ pub const DEFAULT_LEADER_KEY: char = ';';
 /// Preferred sidebar width as a percentage of the available content width.
 pub const DEFAULT_SIDEBAR_WIDTH: u16 = 20;
 
+/// Author column width in terminal cells in the Pull Requests picker.
+pub const DEFAULT_PR_AUTHOR_WIDTH: u16 = 12;
+
 /// Lines scrolled per vertical mouse wheel tick when `mouse_scroll_lines` is unset.
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 
@@ -170,6 +173,8 @@ pub struct AppConfig {
     pub show_file_list: Option<bool>,
     /// Preferred outer sidebar width as a percentage (`1..=99`), default 20.
     pub sidebar_width: Option<u16>,
+    /// Author column width in the Pull Requests picker (`1..=65535` cells), default 12.
+    pub pr_author_width: Option<u16>,
     /// Join single-child directory chains in the file tree. Defaults to false.
     pub compact_folders: Option<bool>,
     /// Whether pull-request CI checks are fetched and shown.
@@ -283,6 +288,7 @@ const KNOWN_KEYS: &[&str] = &[
     "comment_types",
     "show_file_list",
     "sidebar_width",
+    "pr_author_width",
     "compact_folders",
     "show_pr_checks",
     "show_pr_comments",
@@ -507,6 +513,21 @@ fn read_sidebar_width(table: &toml::Table, warnings: &mut Vec<String>) -> Option
     }
 }
 
+/// Bound the column to the terminal's width type before doing layout arithmetic.
+fn read_pr_author_width(table: &toml::Table, warnings: &mut Vec<String>) -> Option<u16> {
+    let value = table.get("pr_author_width")?;
+    if let Some(width) = value.as_integer()
+        && (1..=i64::from(u16::MAX)).contains(&width)
+    {
+        return Some(width as u16);
+    }
+    warnings.push(format!(
+        "Warning: Config key 'pr_author_width' must be an integer between 1 and {}; ignoring value",
+        u16::MAX
+    ));
+    None
+}
+
 /// Read `mouse_scroll_lines`, pushing a warning if it is outside
 /// `1..=MAX_MOUSE_SCROLL_LINES`.
 fn read_mouse_scroll_lines(table: &toml::Table, warnings: &mut Vec<String>) -> Option<usize> {
@@ -667,6 +688,7 @@ fn load_config_from_path(path: &Path) -> Result<ConfigLoadOutcome> {
             .and_then(|v| parse_comment_types(v, &mut warnings)),
         show_file_list: read_bool(table, "show_file_list", &mut warnings),
         sidebar_width: read_sidebar_width(table, &mut warnings),
+        pr_author_width: read_pr_author_width(table, &mut warnings),
         compact_folders: read_bool(table, "compact_folders", &mut warnings),
         show_pr_checks: read_bool(table, "show_pr_checks", &mut warnings),
         show_pr_comments: read_bool(table, "show_pr_comments", &mut warnings),
@@ -1311,6 +1333,45 @@ mod tests {
             assert_eq!(outcome.config.unwrap().sidebar_width, None, "{value}");
             assert_eq!(outcome.warnings.len(), 1, "{value}");
             assert!(outcome.warnings[0].contains("sidebar_width"));
+        }
+    }
+
+    #[test]
+    fn should_parse_pr_author_width_in_cells() {
+        for value in [1, 2, 12, 24, u16::MAX] {
+            let outcome = parse_config(&format!("pr_author_width = {value}\n"));
+            assert_eq!(outcome.config.unwrap().pr_author_width, Some(value));
+            assert!(outcome.warnings.is_empty());
+        }
+    }
+
+    #[test]
+    fn should_default_pr_author_width_to_twelve_cells() {
+        let outcome = parse_config("theme = \"light\"\n");
+        assert_eq!(outcome.config.unwrap().pr_author_width, None);
+        assert_eq!(DEFAULT_PR_AUTHOR_WIDTH, 12);
+        assert!(outcome.warnings.is_empty());
+    }
+
+    #[test]
+    fn should_warn_and_ignore_invalid_pr_author_width_without_losing_other_config() {
+        for value in [
+            "0",
+            "-1",
+            "65536",
+            "4294967297",
+            "9223372036854775807",
+            "1.5",
+            "true",
+            "\"wide\"",
+            "[]",
+        ] {
+            let outcome = parse_config(&format!("pr_author_width = {value}\ntheme = \"light\"\n"));
+            let config = outcome.config.unwrap();
+            assert_eq!(config.pr_author_width, None, "{value}");
+            assert_eq!(config.theme.as_deref(), Some("light"), "{value}");
+            assert_eq!(outcome.warnings.len(), 1, "{value}");
+            assert!(outcome.warnings[0].contains("pr_author_width"));
         }
     }
 

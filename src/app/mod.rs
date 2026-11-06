@@ -1266,6 +1266,8 @@ pub struct App {
     pub canonical_resolved: bool,
     /// State machine for the Pull Requests tab.
     pub pr_tab: PullRequestsTab,
+    /// Preferred author column width in terminal cells in the PR picker.
+    pub pr_author_width: u16,
     /// Viewport height of the PR list (set during render).
     pub pr_list_viewport_height: usize,
     /// Inner content rect of the PR list panel (set during render).
