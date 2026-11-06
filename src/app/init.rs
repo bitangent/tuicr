@@ -552,6 +552,7 @@ impl App {
             repo_url_override,
             canonical_resolved: false,
             pr_tab: PullRequestsTab::new(None),
+            pr_author_width: crate::config::DEFAULT_PR_AUTHOR_WIDTH,
             pr_list_viewport_height: 0,
             pr_list_inner_area: None,
             pr_filter_draft: None,

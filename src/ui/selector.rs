@@ -21,10 +21,8 @@ const TAB_LOCAL: &str = "Local";
 const TAB_PULL_REQUESTS: &str = "Pull Requests";
 const TAB_SESSIONS: &str = "Sessions";
 
-const PR_AUTHOR_WIDTH: usize = 12;
 const PR_DATE_WIDTH: usize = 8; // "just now"
 const PR_DRAFT_WIDTH: usize = 8; // " [draft]"
-const PR_METADATA_WIDTH: usize = 2 + PR_AUTHOR_WIDTH + 3 + PR_DATE_WIDTH + PR_DRAFT_WIDTH;
 const PR_MIN_TITLE_WITH_METADATA: usize = 20;
 
 pub(super) fn render_commit_select(frame: &mut Frame, app: &mut App) {
@@ -432,10 +430,11 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
         .unwrap_or(6)
         .max(6);
     let title_budget = (area.width as usize).saturating_sub(4 + number_width + 1);
+    let author_width = usize::from(app.pr_author_width);
+    let metadata_width = 2 + author_width + 3 + PR_DATE_WIDTH + PR_DRAFT_WIDTH;
     // On narrow terminals, prioritize the number and title over metadata.
-    let show_metadata = title_budget >= PR_METADATA_WIDTH + PR_MIN_TITLE_WITH_METADATA;
-    let title_width =
-        title_budget.saturating_sub(if show_metadata { PR_METADATA_WIDTH } else { 0 });
+    let show_metadata = title_budget >= metadata_width + PR_MIN_TITLE_WITH_METADATA;
+    let title_width = title_budget.saturating_sub(if show_metadata { metadata_width } else { 0 });
 
     let mut lines: Vec<Line> = Vec::new();
     for (i, row) in view.rows.iter().enumerate() {
@@ -464,10 +463,6 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
         // date column lands at the same x across rows.
         let number = truncate_or_pad_cells(&format!("#{}", row.summary.number), number_width);
         let title = truncate_or_pad_cells(&row.summary.title, title_width);
-        let author = truncate_or_pad_cells(
-            row.summary.author.as_deref().unwrap_or("?"),
-            PR_AUTHOR_WIDTH,
-        );
         let updated = row
             .summary
             .updated_at
@@ -478,7 +473,7 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
         let metadata = if show_metadata {
             format!(
                 "  {} \u{00b7} {}{}",
-                author,
+                truncate_or_pad_cells(row.summary.author.as_deref().unwrap_or("?"), author_width),
                 truncate_or_pad_cells(&updated, PR_DATE_WIDTH),
                 truncate_or_pad_cells(draft, PR_DRAFT_WIDTH),
             )
@@ -1096,6 +1091,7 @@ mod selector_render_snapshot_tests {
     #[test]
     fn should_give_pr_titles_remaining_width_and_resize_in_both_directions() {
         let mut app = make_pr_app(vec![pr(148, &"x".repeat(500), "alice")]);
+        assert_eq!(app.pr_author_width, 12);
         for width in [80, 120, 160, 240, 120, 80] {
             let buffer = draw_at(&mut app, width, 24);
             // Two border cells, eleven leading cells and 33 metadata cells.
@@ -1108,6 +1104,108 @@ mod selector_render_snapshot_tests {
             assert_eq!(buffer[(width - 32, 2)].symbol(), "a");
             assert_eq!(buffer[(width - 1, 2)].symbol(), "│");
         }
+    }
+
+    #[test]
+    fn should_resize_pr_author_column_and_give_titles_the_remaining_cells() {
+        let title = "x".repeat(500);
+        let mut missing_author = pr(3, &title, "");
+        missing_author.author = None;
+        let mut app = make_pr_app(vec![
+            pr(1, &title, "alice-with-a-long-name"),
+            pr(2, "short title", "bob"),
+            missing_author,
+        ]);
+        for (author_width, expected) in [
+            (1, "."),
+            (2, ".."),
+            (3, "..."),
+            (8, "alice..."),
+            (24, "alice-with-a-long-name  "),
+        ] {
+            app.pr_author_width = author_width;
+            for width in [120, 160, 120] {
+                let buffer = draw_at(&mut app, width, 24);
+                let title_width = width - 34 - author_width;
+                let title: String = (12..12 + title_width)
+                    .map(|x| buffer[(x, 2)].symbol())
+                    .collect();
+                assert_eq!(
+                    title,
+                    format!("{}...", "x".repeat(usize::from(title_width - 3)))
+                );
+                let author_start = width - 20 - author_width;
+                let author: String = (author_start..author_start + author_width)
+                    .map(|x| buffer[(x, 2)].symbol())
+                    .collect();
+                assert_eq!(author, expected);
+                assert_eq!(buffer[(author_start, 4)].symbol(), "?");
+                for y in 2..=4 {
+                    assert_eq!(buffer[(width - 19, y)].symbol(), "·");
+                    assert_eq!(buffer[(width - 1, y)].symbol(), "│");
+                }
+                if author_width >= 3 {
+                    let author: String = (author_start..author_start + author_width)
+                        .map(|x| buffer[(x, 3)].symbol())
+                        .collect();
+                    assert_eq!(
+                        author,
+                        format!("bob{:width$}", "", width = usize::from(author_width - 3))
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn should_keep_unicode_authors_within_custom_cell_widths() {
+        let mut app = make_pr_app(vec![
+            pr(1, "first", "界界界界"),
+            pr(2, "second", "👩‍💻abcdef"),
+            pr(3, "third", "e\u{301}abcdef"),
+        ]);
+        app.pr_author_width = 5;
+        let buffer = draw_at(&mut app, 120, 24);
+        for (y, first, second) in [(2, "界", " "), (3, "👩‍💻", " "), (4, "e\u{301}", "a")] {
+            assert_eq!(buffer[(95, y)].symbol(), first);
+            assert_eq!(buffer[(96, y)].symbol(), second);
+            for x in 97..100 {
+                assert_eq!(buffer[(x, y)].symbol(), ".");
+            }
+            assert_eq!(buffer[(101, y)].symbol(), "·");
+            assert_eq!(buffer[(119, y)].symbol(), "│");
+        }
+    }
+
+    #[test]
+    fn should_hide_pr_metadata_at_the_configured_width_threshold() {
+        let mut draft = pr(148, &"x".repeat(500), "alice");
+        draft.is_draft = true;
+        let mut app = make_pr_app(vec![draft]);
+        for author_width in [1, 12, 24, 60] {
+            app.pr_author_width = author_width;
+            let threshold = 54 + author_width;
+            for width in [threshold, threshold - 1, threshold] {
+                let buffer = draw_at(&mut app, width, 24);
+                let metadata_visible = width >= threshold;
+                assert_eq!(row_text(&buffer, 2).contains(" [draft]"), metadata_visible);
+                assert_eq!(row_text(&buffer, 2).contains('·'), metadata_visible);
+                assert_eq!(buffer[(width - 1, 2)].symbol(), "│");
+                let title_width = if metadata_visible { 20 } else { width - 13 };
+                let title: String = (12..12 + title_width)
+                    .map(|x| buffer[(x, 2)].symbol())
+                    .collect();
+                assert_eq!(
+                    title,
+                    format!("{}...", "x".repeat(usize::from(title_width - 3)))
+                );
+            }
+        }
+        app.pr_author_width = u16::MAX;
+        let buffer = draw_at(&mut app, 120, 24);
+        assert!(!row_text(&buffer, 2).contains("alice"));
+        assert!(!row_text(&buffer, 2).contains(" [draft]"));
+        assert!(row_text(&buffer, 2).contains(&format!("{}...", "x".repeat(104))));
     }
 
     #[test]
