@@ -15,11 +15,17 @@ use crate::ui::commit_row::{
 };
 use crate::ui::status_bar;
 use crate::ui::styles;
-use crate::ui::text_utils::truncate_or_pad;
+use crate::ui::text_utils::{truncate_or_pad, truncate_or_pad_cells};
 
 const TAB_LOCAL: &str = "Local";
 const TAB_PULL_REQUESTS: &str = "Pull Requests";
 const TAB_SESSIONS: &str = "Sessions";
+
+const PR_AUTHOR_WIDTH: usize = 12;
+const PR_DATE_WIDTH: usize = 8; // "just now"
+const PR_DRAFT_WIDTH: usize = 8; // " [draft]"
+const PR_METADATA_WIDTH: usize = 2 + PR_AUTHOR_WIDTH + 3 + PR_DATE_WIDTH + PR_DRAFT_WIDTH;
+const PR_MIN_TITLE_WITH_METADATA: usize = 20;
 
 pub(super) fn render_commit_select(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
@@ -416,6 +422,21 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
         .as_ref()
         .map(|s| pr_open_spinner_glyph(s.started_at.elapsed()));
 
+    // Keep numbers aligned even on forges with more than five-digit IDs.
+    // The number is bounded by u64; all remaining space belongs to the title.
+    let number_width = view
+        .rows
+        .iter()
+        .map(|row| row.summary.number.to_string().len() + 1)
+        .max()
+        .unwrap_or(6)
+        .max(6);
+    let title_budget = (area.width as usize).saturating_sub(4 + number_width + 1);
+    // On narrow terminals, prioritize the number and title over metadata.
+    let show_metadata = title_budget >= PR_METADATA_WIDTH + PR_MIN_TITLE_WITH_METADATA;
+    let title_width =
+        title_budget.saturating_sub(if show_metadata { PR_METADATA_WIDTH } else { 0 });
+
     let mut lines: Vec<Line> = Vec::new();
     for (i, row) in view.rows.iter().enumerate() {
         let is_cursor = i == view.cursor;
@@ -441,9 +462,12 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
         // visual consistency (leading cursor + a placeholder column where
         // the range bar lives on commit rows) and pad title/author so the
         // date column lands at the same x across rows.
-        let number = format!("#{:<5}", row.summary.number);
-        let title = truncate_or_pad(&row.summary.title, 60);
-        let author = truncate_or_pad(row.summary.author.as_deref().unwrap_or("?"), 12);
+        let number = truncate_or_pad_cells(&format!("#{}", row.summary.number), number_width);
+        let title = truncate_or_pad_cells(&row.summary.title, title_width);
+        let author = truncate_or_pad_cells(
+            row.summary.author.as_deref().unwrap_or("?"),
+            PR_AUTHOR_WIDTH,
+        );
         let updated = row
             .summary
             .updated_at
@@ -451,6 +475,16 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
             .map(format_relative_short)
             .unwrap_or_else(|| "—".to_string());
         let draft = if row.summary.is_draft { " [draft]" } else { "" };
+        let metadata = if show_metadata {
+            format!(
+                "  {} \u{00b7} {}{}",
+                author,
+                truncate_or_pad_cells(&updated, PR_DATE_WIDTH),
+                truncate_or_pad_cells(draft, PR_DRAFT_WIDTH),
+            )
+        } else {
+            String::new()
+        };
 
         lines.push(Line::from(vec![
             Span::styled(
@@ -461,10 +495,7 @@ fn render_pr_list(frame: &mut Frame, app: &App, area: Rect, view: &PrTabView<'_>
             Span::styled(number, styles::hash_style(theme)),
             Span::styled(" ", Style::default()),
             Span::styled(title, Style::default().fg(theme.fg_primary)),
-            Span::styled(
-                format!("  {} \u{00b7} {}{}", author, updated, draft),
-                Style::default().fg(theme.fg_secondary),
-            ),
+            Span::styled(metadata, Style::default().fg(theme.fg_secondary)),
         ]));
     }
 
@@ -768,6 +799,16 @@ mod selector_render_snapshot_tests {
         }
     }
 
+    fn make_pr_app(rows: Vec<PullRequestSummary>) -> App {
+        let mut app = make_app(Vec::new());
+        app.forge_repository = Some(repo());
+        app.pr_tab = PullRequestsTab::new(Some(repo()));
+        app.pr_tab.start_initial_load();
+        app.pr_tab.apply_initial_load(Ok((rows, false)));
+        app.target_tab = crate::app::TargetTab::PullRequests;
+        app
+    }
+
     fn draw_at(app: &mut App, width: u16, height: u16) -> Buffer {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1049,6 +1090,71 @@ mod selector_render_snapshot_tests {
             "ypares",
         ] {
             assert!(body.contains(needle), "missing {needle:?} in:\n{body}");
+        }
+    }
+
+    #[test]
+    fn should_give_pr_titles_remaining_width_and_resize_in_both_directions() {
+        let mut app = make_pr_app(vec![pr(148, &"x".repeat(500), "alice")]);
+        for width in [80, 120, 160, 240, 120, 80] {
+            let buffer = draw_at(&mut app, width, 24);
+            // Two border cells, eleven leading cells and 33 metadata cells.
+            let title_width = usize::from(width) - 46;
+            let expected = format!("{}...", "x".repeat(title_width - 3));
+            let title: String = (12..12 + title_width as u16)
+                .map(|x| buffer[(x, 2)].symbol())
+                .collect();
+            assert_eq!(title, expected, "terminal width {width}");
+            assert_eq!(buffer[(width - 32, 2)].symbol(), "a");
+            assert_eq!(buffer[(width - 1, 2)].symbol(), "│");
+        }
+    }
+
+    #[test]
+    fn should_show_complete_pr_titles_longer_than_sixty_characters() {
+        let title = format!("{} visible ending", "x".repeat(70));
+        let mut app = make_pr_app(vec![pr(148, &title, "alice")]);
+        let wide = draw_at(&mut app, 160, 24);
+        assert!(row_text(&wide, 2).contains(&title));
+        assert!(row_text(&wide, 2).contains("alice"));
+        let narrow = draw_at(&mut app, 80, 24);
+        assert!(!row_text(&narrow, 2).contains("visible ending"));
+        assert!(row_text(&narrow, 2).contains("..."));
+    }
+
+    #[test]
+    fn should_align_bounded_pr_metadata_for_long_ids_unicode_and_drafts() {
+        let mut draft = pr(1234567, &"界👩‍💻e\u{301}".repeat(40), "長い名前の作者です");
+        draft.is_draft = true;
+        draft.updated_at = Some(Utc::now() + chrono::Duration::days(1));
+        let mut other = pr(1, "short title", "alice-with-a-long-name");
+        other.updated_at = None;
+        let mut app = make_pr_app(vec![draft, other]);
+        let buffer = draw_at(&mut app, 160, 24);
+        assert!(row_text(&buffer, 2).contains("#1234567"));
+        assert!(row_text(&buffer, 3).contains("#1      "));
+        for y in [2, 3] {
+            assert_eq!(buffer[(141, y)].symbol(), "·");
+            assert_eq!(buffer[(159, y)].symbol(), "│");
+        }
+        assert!(row_text(&buffer, 2).contains("just now [draft]"));
+        assert!(row_text(&buffer, 3).contains("alice-wit..."));
+        assert_eq!(buffer[(143, 3)].symbol(), "—");
+    }
+
+    #[test]
+    fn should_prioritize_pr_title_on_narrow_terminals_and_handle_tiny_sizes() {
+        let mut app = make_pr_app(vec![pr(148, &"x".repeat(100), "alice")]);
+        let buffer = draw_at(&mut app, 60, 24);
+        let body = row_text(&buffer, 2);
+        assert!(body.contains(&format!("{}...", "x".repeat(44))));
+        assert!(!body.contains("alice"));
+        assert_eq!(buffer[(59, 2)].symbol(), "│");
+
+        for width in 0..80 {
+            for height in [0, 1, 2, 3, 4, 24] {
+                draw_at(&mut app, width, height);
+            }
         }
     }
 

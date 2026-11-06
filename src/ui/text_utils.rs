@@ -27,6 +27,36 @@ pub(super) fn truncate_or_pad(s: &str, width: usize) -> String {
     }
 }
 
+/// Fit a single-line column to terminal cells without splitting graphemes.
+pub(super) fn truncate_or_pad_cells(s: &str, width: usize) -> String {
+    // Removing controls can join adjacent graphemes (for example an emoji
+    // ZWJ sequence), so normalize before measuring or finding boundaries.
+    let text: String = s
+        .chars()
+        .filter_map(|c| match c {
+            '\t' => Some(' '),
+            c if c.is_control() => None,
+            c => Some(c),
+        })
+        .collect();
+    let truncated = text_cells(&text) > width;
+    let ellipsis_width = if truncated { width.min(3) } else { 0 };
+    let content_width = width - ellipsis_width;
+    let mut result = String::new();
+    let mut used = 0;
+    for grapheme in text.graphemes(true) {
+        let cells = grapheme_cells(grapheme);
+        if used + cells > content_width {
+            break;
+        }
+        result.push_str(grapheme);
+        used += cells;
+    }
+    result.push_str(&".".repeat(ellipsis_width));
+    result.push_str(&" ".repeat(content_width - used));
+    result
+}
+
 pub(super) fn truncate_or_pad_pairs_by_chars(
     pairs: &[(Style, String)],
     width: usize,
@@ -691,6 +721,41 @@ mod tests {
         // then
         assert!(result.ends_with("..."));
         assert!(result.is_char_boundary(result.len()));
+    }
+
+    #[test]
+    fn should_fit_columns_to_cells_including_tiny_widths() {
+        for value in ["", "short", "a long title", "界界界界", "👩‍💻e\u{301}abcdef"] {
+            for width in 0..20 {
+                let fitted = truncate_or_pad_cells(value, width);
+                assert_eq!(text_cells(&fitted), width, "{value:?} at width {width}");
+            }
+        }
+        assert_eq!(truncate_or_pad_cells("abcdef", 0), "");
+        assert_eq!(truncate_or_pad_cells("abcdef", 1), ".");
+        assert_eq!(truncate_or_pad_cells("abcdef", 2), "..");
+        assert_eq!(truncate_or_pad_cells("abcdef", 3), "...");
+        assert_eq!(truncate_or_pad_cells("abcdef", 5), "ab...");
+    }
+
+    #[test]
+    fn should_keep_graphemes_whole_and_pad_unused_wide_character_cells() {
+        assert_eq!(truncate_or_pad_cells("界界界", 4), "... ");
+        assert_eq!(truncate_or_pad_cells("👩‍💻abcdef", 5), "👩‍💻...");
+        assert_eq!(truncate_or_pad_cells("e\u{301}abcdef", 4), "e\u{301}...");
+        assert_eq!(truncate_or_pad_cells("a\tb\nc", 6), "a bc  ");
+    }
+
+    #[test]
+    fn should_measure_graphemes_after_removing_controls() {
+        for value in ["👩\n\u{200d}💻", "1\n\u{fe0f}\u{20e3}"] {
+            for width in 0..10 {
+                let fitted = truncate_or_pad_cells(value, width);
+                assert_eq!(text_cells(&fitted), width, "{value:?} at width {width}");
+            }
+        }
+        assert_eq!(truncate_or_pad_cells("👩\n\u{200d}💻", 3), "👩‍💻 ");
+        assert_eq!(truncate_or_pad_cells("1\n\u{fe0f}\u{20e3}", 2), "1️⃣");
     }
 
     #[test]
